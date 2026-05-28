@@ -18,7 +18,7 @@ const getDomain = (url: string) => {
   }
 }
 
-export default function Page() {
+export default function MyPage() {
   const [links, setLinks] = useState<LinkItem[]>([])
   const [title, setTitle] = useState("")
   const [url, setUrl] = useState("")
@@ -96,61 +96,52 @@ export default function Page() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-start bg-[#F8F9FA] px-4 py-16 dark:bg-neutral-950">
       
-      {/* 🧑‍💻 프로필 헤더 영역 */}
-      <div className="flex flex-col items-center text-center mb-8 max-w-md w-full">
-        <div className="relative">
-          <div className="flex h-20 w-20 items-center justify-center rounded-full bg-white border border-neutral-200 text-3xl shadow-sm dark:bg-neutral-800 dark:border-neutral-700">
-            🧑‍💻
-          </div>
-          {/* 초록색 Pulse 온라인 상태 배지 */}
-          <span className="absolute bottom-0 right-0 flex h-4 w-4">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-4 w-4 bg-green-500 border-2 border-white dark:border-neutral-950"></span>
-          </span>
-        </div>
-
-        <h1 className="mt-4 text-2xl font-bold tracking-tight text-neutral-800 dark:text-neutral-50">
-          이림_개발자
+      {/* 1. 상단 - 제목 */}
+      <div className="flex flex-col items-center text-center mb-8 max-w-xl w-full">
+        <h1 className="text-3xl font-extrabold tracking-tight text-neutral-900 dark:text-neutral-50">
+          마이링크 관리 <span className="text-purple-600">MyPage</span>
         </h1>
-        <p className="mt-1.5 text-sm text-neutral-500 dark:text-neutral-400 max-w-[280px]">
-          React와 TypeScript를 좋아하는 프론트엔드 신입 개발자입니다.
+        <p className="mt-2 text-sm text-neutral-500 dark:text-neutral-400">
+          나만의 링크 목록을 실시간으로 추가하고 관리해 보세요.
         </p>
       </div>
 
-      {/* 📝 링크 추가 입력 폼 */}
-      <Card className="w-full max-w-md border border-neutral-200 bg-white/90 shadow-sm mb-8 dark:border-neutral-800 dark:bg-neutral-900/90">
-        <CardContent className="p-4">
-          <form onSubmit={handleAddLink} noValidate className="flex flex-col gap-3.5">
+      {/* 2. 중간 - 폼 */}
+      <Card className="w-full max-w-xl border border-neutral-200 bg-white shadow-sm mb-10 dark:border-neutral-800 dark:bg-neutral-900">
+        <CardContent className="p-6">
+          <form onSubmit={handleAddLink} noValidate className="flex flex-col gap-4">
+            {/* 입력 칸 가로 나란히 배치 */}
             <div className="flex flex-col sm:flex-row gap-3 w-full">
               <div className="flex-1">
-                <label className="block text-xs font-semibold text-neutral-500 mb-1 dark:text-neutral-450">
+                <label className="block text-xs font-semibold text-neutral-500 mb-1.5 dark:text-neutral-400">
                   링크 제목
                 </label>
                 <input
                   type="text"
-                  placeholder="예: GitHub"
+                  placeholder="예: 내 블로그"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-sm outline-none transition-all focus:border-purple-500 focus:bg-white dark:border-neutral-800 dark:bg-neutral-950 dark:focus:border-purple-500"
+                  className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3.5 py-2 text-sm outline-none transition-all focus:border-purple-500 focus:bg-white dark:border-neutral-800 dark:bg-neutral-950 dark:focus:border-purple-500"
                 />
               </div>
-              <div className="flex-[1.5]">
-                <label className="block text-xs font-semibold text-neutral-500 mb-1 dark:text-neutral-450">
+              <div className="flex-[2]">
+                <label className="block text-xs font-semibold text-neutral-500 mb-1.5 dark:text-neutral-400">
                   연결 주소 (URL)
                 </label>
                 <input
                   type="text"
-                  placeholder="예: github.com"
+                  placeholder="예: https://velog.io/@limi"
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
-                  className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-sm outline-none transition-all focus:border-purple-500 focus:bg-white dark:border-neutral-800 dark:bg-neutral-950 dark:focus:border-purple-500"
+                  className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3.5 py-2 text-sm outline-none transition-all focus:border-purple-500 focus:bg-white dark:border-neutral-800 dark:bg-neutral-950 dark:focus:border-purple-500"
                 />
               </div>
             </div>
             
+            {/* 추가 버튼 */}
             <button
               type="submit"
-              className="w-full rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-purple-700 active:scale-[0.99] focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 dark:focus:ring-offset-neutral-950"
+              className="w-full rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-purple-700 active:scale-[0.99] focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 dark:focus:ring-offset-neutral-950"
             >
               새 링크 추가하기
             </button>
@@ -158,8 +149,12 @@ export default function Page() {
         </CardContent>
       </Card>
 
-      {/* 🔗 링크 카드 리스트 (실시간 렌더링) */}
-      <div className="flex w-full max-w-md flex-col gap-4">
+      {/* 3. 하단 - 목록 */}
+      <div className="w-full max-w-xl flex flex-col gap-4">
+        <h2 className="text-sm font-bold text-neutral-700 dark:text-neutral-300 px-1 mb-1">
+          현재 링크 목록 ({links.length}개)
+        </h2>
+        
         {links.map((link) => {
           const domain = getDomain(link.url);
           const faviconUrl = domain 
@@ -176,7 +171,7 @@ export default function Page() {
             >
               <Card className="overflow-hidden border border-neutral-200/80 bg-white/95 shadow-sm transition-all duration-300 hover:border-neutral-300 hover:bg-white hover:shadow-md dark:border-neutral-800 dark:bg-neutral-900/95 dark:hover:border-neutral-700 dark:hover:bg-neutral-900">
                 <CardContent className="flex items-center gap-4 p-4">
-                  {/* 구글 API를 이용한 파비콘 자동 추출 아이콘 */}
+                  {/* 구글 파비콘 추출 */}
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-neutral-50 border border-neutral-100 overflow-hidden dark:bg-neutral-850 dark:border-neutral-800">
                     {faviconUrl ? (
                       <img 
@@ -192,17 +187,17 @@ export default function Page() {
                     )}
                   </div>
                   
-                  {/* 링크 제목 및 주소 */}
+                  {/* 텍스트 */}
                   <div className="flex-1 min-w-0">
-                    <h2 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100 group-hover:text-black dark:group-hover:text-white">
+                    <h3 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100 group-hover:text-black dark:group-hover:text-white">
                       {link.title}
-                    </h2>
+                    </h3>
                     <p className="text-xs text-neutral-400 truncate dark:text-neutral-500">
                       {link.url}
                     </p>
                   </div>
                   
-                  {/* 우측 이동 인디케이터 */}
+                  {/* 이동 Chevron */}
                   <div className="text-neutral-400 transition-transform duration-300 group-hover:translate-x-0.5 dark:text-neutral-600">
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
@@ -225,11 +220,6 @@ export default function Page() {
           );
         })}
       </div>
-
-      {/* 심플 푸터 */}
-      <footer className="mt-auto pt-16 text-center text-xs text-neutral-400 dark:text-neutral-600">
-        © 2026 MyLink. All rights reserved.
-      </footer>
     </div>
   )
 }
