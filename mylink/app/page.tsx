@@ -6,6 +6,7 @@ import { db, auth } from "@/lib/firebase"
 import { collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, doc, deleteDoc, updateDoc, setDoc } from "firebase/firestore"
 import { GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from "firebase/auth"
 import { dummyLinks, LinkItem } from "@/data/links"
+import Link from "next/link"
 
 // URL에서 도메인을 파싱해주는 헬퍼 함수
 const getDomain = (url: string) => {
@@ -30,6 +31,7 @@ export default function Page() {
   const [linkToDelete, setLinkToDelete] = useState<LinkItem | null>(null)
   const [deletedDummyIds, setDeletedDummyIds] = useState<string[]>([])
   const [user, setUser] = useState<User | null>(null)
+  const [profile, setProfile] = useState<{ displayName: string; username: string; bio: string } | null>(null)
 
   // Auth 상태 변경 실시간 감시 (try-catch 예외 처리 보완)
   useEffect(() => {
@@ -46,6 +48,35 @@ export default function Page() {
       console.error("onAuthStateChanged 등록 중 에러 발생:", error)
     }
   }, [])
+
+  // 프로필 실시간 동적 연동
+  useEffect(() => {
+    if (!db || !user) {
+      setProfile(null)
+      return
+    }
+
+    try {
+      const profileRef = doc(db, "users", user.uid, "profile", "info")
+      const unsubscribe = onSnapshot(profileRef, (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data()
+          setProfile({
+            displayName: data.displayName || "",
+            username: data.username || "",
+            bio: data.bio || ""
+          })
+        } else {
+          setProfile(null)
+        }
+      }, (error) => {
+        console.error("메인 페이지 프로필 실시간 로딩 에러:", error)
+      })
+      return () => unsubscribe()
+    } catch (e) {
+      console.error("onSnapshot profile registration failed:", e)
+    }
+  }, [user])
 
   // Firestore 실시간 구독 및 무한 루프 안전 방지 처리 (의존성 배열 및 클린업 기능 극대화)
   useEffect(() => {
@@ -292,10 +323,16 @@ export default function Page() {
         </div>
         <div className="flex items-center gap-3">
           {user ? (
-            <div className="flex items-center gap-2.5 animate-fadeIn">
-              <span className="text-xs font-semibold text-neutral-600 dark:text-neutral-350">
-                {user.displayName || "홍길동"}님
+            <div className="flex items-center gap-2 animate-fadeIn">
+              <span className="text-xs font-semibold text-neutral-600 dark:text-neutral-350 mr-1">
+                {profile?.displayName || user.displayName || "홍길동"}님
               </span>
+              <Link
+                href="/mypage"
+                className="rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-neutral-600 hover:bg-neutral-50 transition-colors dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-350 dark:hover:bg-neutral-850"
+              >
+                마이페이지
+              </Link>
               <button
                 onClick={handleLogout}
                 className="rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-neutral-600 hover:bg-neutral-50 hover:text-red-500 transition-colors dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-450 dark:hover:bg-neutral-850"
@@ -333,11 +370,16 @@ export default function Page() {
           </span>
         </div>
 
-        <h1 className="mt-4 text-2xl font-bold tracking-tight text-neutral-800 dark:text-neutral-50">
-          이림_개발자
+        <h1 className="mt-4 text-2xl font-bold tracking-tight text-neutral-800 dark:text-neutral-50 flex items-center justify-center gap-2">
+          {profile?.displayName || (user ? (user.displayName || "홍길동") : "이림_개발자")}
+          {profile?.username && (
+            <span className="px-2 py-0.5 rounded-full bg-purple-50 text-[10px] font-bold text-purple-600 border border-purple-100 dark:bg-purple-950/30 dark:text-purple-400 dark:border-purple-900/50">
+              @{profile.username}
+            </span>
+          )}
         </h1>
-        <p className="mt-1.5 text-sm text-neutral-500 dark:text-neutral-400 max-w-[280px]">
-          React와 TypeScript를 좋아하는 프론트엔드 신입 개발자입니다.
+        <p className="mt-1.5 text-sm text-neutral-500 dark:text-neutral-400 max-w-[280px] break-words">
+          {profile?.bio || (user ? "아직 소개글이 없습니다." : "React와 TypeScript를 좋아하는 프론트엔드 신입 개발자입니다.")}
         </p>
       </div>
 

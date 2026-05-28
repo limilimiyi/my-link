@@ -22,7 +22,7 @@ const getDomain = (url: string) => {
 
 interface UserProfile {
   username: string;
-  name: string;
+  displayName: string;
   bio: string;
 }
 
@@ -38,14 +38,14 @@ export default function MyPage() {
 
   // Auth 및 프로필 상태 관리
   const [user, setUser] = useState<User | null>(null)
-  const [profile, setProfile] = useState<UserProfile>({ username: "", name: "", bio: "" })
+  const [profile, setProfile] = useState<UserProfile>({ username: "", displayName: "", bio: "" })
   const [profileLoading, setProfileLoading] = useState(true)
   const [isEditingProfile, setIsEditingProfile] = useState(false)
   const [isSavingProfile, setIsSavingProfile] = useState(false)
 
   // 프로필 편집 입력 폼 상태
   const [inputUsername, setInputUsername] = useState("")
-  const [inputName, setInputName] = useState("")
+  const [inputDisplayName, setInputDisplayName] = useState("")
   const [inputBio, setInputBio] = useState("")
 
   // Username 중복 검사 보조 상태
@@ -67,7 +67,7 @@ export default function MyPage() {
       const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
         setUser(currentUser)
         if (!currentUser) {
-          setProfile({ username: "", name: "", bio: "" })
+          setProfile({ username: "", displayName: "", bio: "" })
           setSavedUsername("")
           setProfileLoading(false)
         }
@@ -82,7 +82,36 @@ export default function MyPage() {
     }
   }, [])
 
-  // 2. 로그인된 사용자 정보 기반으로 프로필 실시간 불러오기
+  // 고유한 username 자동 생성 헬퍼 함수
+  const generateUniqueUsername = async (email: string, uid: string) => {
+    const emailPrefix = email.split("@")[0].toLowerCase().replace(/[^a-z0-9_.]/g, "")
+    const base = emailPrefix || "user"
+    
+    let candidate = base
+    let isUnique = false
+    let counter = 0
+    
+    while (!isUnique && counter < 20) {
+      const checkName = counter === 0 ? base : `${base}${counter}`
+      try {
+        const usernameRef = doc(db, "usernames", checkName)
+        const docSnap = await getDoc(usernameRef)
+        // 존재하지 않거나, 존재하지만 본인의 uid인 경우 사용 가능
+        if (!docSnap.exists() || docSnap.data()?.uid === uid) {
+          candidate = checkName
+          isUnique = true
+        } else {
+          counter++
+        }
+      } catch (e) {
+        console.error("사용자 이름 중복 확인 중 실패:", e)
+        counter++
+      }
+    }
+    return candidate
+  }
+
+  // 2. 로그인된 사용자 정보 기반으로 프로필 실시간 불러오기 + 자동 생성
   useEffect(() => {
     if (!db) {
       setProfileLoading(false)
@@ -92,12 +121,12 @@ export default function MyPage() {
     const userId = user ? user.uid : "anonymous"
     const profileRef = doc(db, "users", userId, "profile", "info")
 
-    const unsubscribe = onSnapshot(profileRef, (docSnap) => {
+    const unsubscribe = onSnapshot(profileRef, async (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data()
         const fetchedProfile = {
           username: data.username || "",
-          name: data.name || "",
+          displayName: data.displayName || "",
           bio: data.bio || ""
         }
         setProfile(fetchedProfile)
@@ -105,18 +134,57 @@ export default function MyPage() {
         
         // 입력창 상태 초기값 세팅
         setInputUsername(data.username || "")
-        setInputName(data.name || "")
+        setInputDisplayName(data.displayName || "")
         setInputBio(data.bio || "")
+        setProfileLoading(false)
       } else {
-        // 프로필 정보가 없으면 기본값 세팅
-        const defaultProfile = { username: "", name: user?.displayName || "", bio: "" }
-        setProfile(defaultProfile)
-        setSavedUsername("")
-        setInputUsername("")
-        setInputName(user?.displayName || "")
-        setInputBio("")
+        // 프로필 정보가 없는데 로그인 상태인 경우: 자동 생성 및 동기화
+        if (user) {
+          try {
+            setProfileLoading(true)
+            const email = user.email || ""
+            const uniqueUsername = await generateUniqueUsername(email, user.uid)
+            const defaultDisplayName = user.displayName || "홍길동"
+            
+            const newProfile = {
+              username: uniqueUsername,
+              displayName: defaultDisplayName,
+              bio: ""
+            }
+
+            // DB 저장 경로: users/{userId}/profile에 저장하기 위해
+            // doc(db, "users", userId)의 profile 필드와 하위 호환을 위한 profile/info, profile/profile 동시 저장
+            const infoRef = doc(db, "users", user.uid, "profile", "info")
+            const subdocRef = doc(db, "users", user.uid, "profile", "profile")
+            const userDocRef = doc(db, "users", user.uid)
+            const usernameRef = doc(db, "usernames", uniqueUsername)
+
+            await setDoc(infoRef, newProfile, { merge: true })
+            await setDoc(subdocRef, newProfile, { merge: true })
+            await setDoc(userDocRef, { profile: newProfile }, { merge: true })
+            await setDoc(usernameRef, { uid: user.uid })
+
+            setProfile(newProfile)
+            setSavedUsername(uniqueUsername)
+            setInputUsername(uniqueUsername)
+            setInputDisplayName(defaultDisplayName)
+            setInputBio("")
+          } catch (e) {
+            console.error("프로필 자동 생성 실패:", e)
+          } finally {
+            setProfileLoading(false)
+          }
+        } else {
+          // 비로그인 상태일 때는 빈값
+          const defaultProfile = { username: "", displayName: "", bio: "" }
+          setProfile(defaultProfile)
+          setSavedUsername("")
+          setInputUsername("")
+          setInputDisplayName("")
+          setInputBio("")
+          setProfileLoading(false)
+        }
       }
-      setProfileLoading(false)
     }, (error) => {
       console.error("프로필 정보 실시간 조회 중 에러:", error)
       setProfileLoading(false)
@@ -249,7 +317,7 @@ export default function MyPage() {
     if (!db) return
 
     const trimmedUsername = inputUsername.trim().toLowerCase()
-    const trimmedName = inputName.trim()
+    const trimmedDisplayName = inputDisplayName.trim()
     const trimmedBio = inputBio.trim()
 
     if (!trimmedUsername) {
@@ -257,7 +325,7 @@ export default function MyPage() {
       return
     }
 
-    if (!trimmedName) {
+    if (!trimmedDisplayName) {
       alert("이름을 입력해주세요.")
       return
     }
@@ -276,15 +344,23 @@ export default function MyPage() {
         }
       }
 
-      // 프로필 저장
-      const userId = user.uid
-      const profileRef = doc(db, "users", userId, "profile", "info")
-      await setDoc(profileRef, {
+      const updatedProfile = {
         username: trimmedUsername,
-        name: trimmedName,
+        displayName: trimmedDisplayName,
         bio: trimmedBio,
         updatedAt: serverTimestamp()
-      }, { merge: true })
+      }
+
+      // 프로필 저장
+      const userId = user.uid
+      const infoRef = doc(db, "users", userId, "profile", "info")
+      const subdocRef = doc(db, "users", userId, "profile", "profile")
+      const userDocRef = doc(db, "users", userId)
+
+      // 이중 저장을 통해 경로 요구조건과 하위 컬렉션 완벽 대응
+      await setDoc(infoRef, updatedProfile, { merge: true })
+      await setDoc(subdocRef, updatedProfile, { merge: true })
+      await setDoc(userDocRef, { profile: updatedProfile }, { merge: true })
 
       // 글로벌 usernames 매핑 갱신
       if (trimmedUsername !== savedUsername.toLowerCase()) {
@@ -452,7 +528,7 @@ export default function MyPage() {
           {user ? (
             <div className="flex items-center gap-2.5 animate-fadeIn">
               <span className="text-xs font-semibold text-neutral-600 dark:text-neutral-350">
-                {profile.name || user.displayName || "홍길동"}님
+                {profile.displayName || user.displayName || "홍길동"}님
               </span>
               <button
                 onClick={handleLogout}
@@ -496,7 +572,7 @@ export default function MyPage() {
                 개인 프로필 기능을 활성화하세요
               </h2>
               <p className="mt-2 text-sm text-neutral-500 dark:text-neutral-400 max-w-sm">
-                Google 계정으로 로그인하시면 나만의 고유 Username, 이름, 소개글을 설정하고 개인 링크 목록을 클라우드에 영구히 저장할 수 있습니다.
+                Google 계정으로 로그인하시면 나만의 고유 Username, 표시 이름, 소개글을 설정하고 개인 링크 목록을 클라우드에 영구히 저장할 수 있습니다.
               </p>
               <button
                 onClick={handleGoogleLogin}
@@ -518,7 +594,7 @@ export default function MyPage() {
               {/* Username 입력 필드 */}
               <div>
                 <label className="block text-xs font-semibold text-neutral-500 mb-1.5 dark:text-neutral-400">
-                  사용자 이름 (Username)
+                  사용자 이름 (Username - 공유 URL용)
                 </label>
                 <div className="flex gap-2">
                   <div className="relative flex-1">
@@ -554,16 +630,16 @@ export default function MyPage() {
                 )}
               </div>
 
-              {/* 이름 입력 필드 */}
+              {/* displayName 입력 필드 */}
               <div>
                 <label className="block text-xs font-semibold text-neutral-500 mb-1.5 dark:text-neutral-400">
-                  이름 (Display Name)
+                  표시 이름 (Display Name)
                 </label>
                 <input
                   type="text"
                   placeholder="예: 홍길동"
-                  value={inputName}
-                  onChange={(e) => setInputName(e.target.value)}
+                  value={inputDisplayName}
+                  onChange={(e) => setInputDisplayName(e.target.value)}
                   className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3.5 py-2 text-sm outline-none transition-all focus:border-purple-500 focus:bg-white dark:border-neutral-800 dark:bg-neutral-950 dark:focus:border-purple-500"
                 />
               </div>
@@ -591,7 +667,7 @@ export default function MyPage() {
                     setUsernameFeedback({ available: null, message: "" });
                     // 값 원래대로 되돌림
                     setInputUsername(profile.username);
-                    setInputName(profile.name);
+                    setInputDisplayName(profile.displayName);
                     setInputBio(profile.bio);
                   }}
                   className="rounded-lg border border-neutral-200 px-4 py-2 text-xs font-semibold text-neutral-600 hover:bg-neutral-50 dark:border-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-850"
@@ -613,7 +689,7 @@ export default function MyPage() {
               {/* 프로필 이미지 아이콘 */}
               <div className="relative shrink-0">
                 <div className="flex h-20 w-20 items-center justify-center rounded-full bg-purple-50 border border-purple-100 text-3xl shadow-xs dark:bg-neutral-850 dark:border-neutral-800">
-                  {profile.name ? profile.name.charAt(0) : "🧑‍💻"}
+                  {profile.displayName ? profile.displayName.charAt(0) : "🧑‍💻"}
                 </div>
                 <span className="absolute bottom-0 right-0 flex h-4.5 w-4.5">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
@@ -625,7 +701,7 @@ export default function MyPage() {
               <div className="flex-1 text-center sm:text-left min-w-0">
                 <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                   <h2 className="text-xl font-bold text-neutral-800 dark:text-neutral-100 truncate">
-                    {profile.name || user.displayName || "홍길동"}
+                    {profile.displayName || user.displayName || "홍길동"}
                   </h2>
                   {profile.username && (
                     <span className="inline-block self-center px-2 py-0.5 rounded-full bg-purple-50 text-[10px] font-bold text-purple-600 border border-purple-100 dark:bg-purple-950/30 dark:text-purple-400 dark:border-purple-900/50">
