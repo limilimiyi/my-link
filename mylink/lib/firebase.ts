@@ -1,4 +1,5 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
+import { getAuth } from "firebase/auth";
 import { initializeFirestore, getFirestore, Firestore } from "firebase/firestore";
 
 // Your web app's Firebase configuration managed via environment variables for security
@@ -25,6 +26,9 @@ if (!isConfigComplete) {
 // Next.js SSR 및 Hot Reloading 환경에서의 안전한 중복 초기화 방지
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
+// Authentication 초기화
+const auth = getAuth(app);
+
 // Firestore 연결 실패(10초 대기 시간 초과) 방지를 위해 Long Polling 강제 활성화 및 중복 초기화 방지 처리
 let db: Firestore;
 try {
@@ -36,4 +40,4 @@ try {
   db = getFirestore(app);
 }
 
-export { app, db };
+export { app, auth, db };
