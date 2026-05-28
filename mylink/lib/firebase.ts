@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { initializeFirestore, getFirestore, Firestore } from "firebase/firestore";
 
 // Your web app's Firebase configuration managed via environment variables for security
 const firebaseConfig = {
@@ -12,11 +12,32 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID
 };
 
+// 필수 환경변수 누락 여부 검증
+const isConfigComplete = !!(
+  firebaseConfig.apiKey &&
+  firebaseConfig.authDomain &&
+  firebaseConfig.projectId
+);
+
+if (!isConfigComplete) {
+  console.warn("⚠️ Firebase 환경 변수설정이 유효하지 않거나 누락되었습니다. .env.local 파일을 확인해주세요.");
+}
+
 // Next.js SSR 및 Hot Reloading 환경에서의 안전한 중복 초기화 방지
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
-// Authentication & Firestore 서비스 초기화
+// Authentication 초기화
 const auth = getAuth(app);
-const db = getFirestore(app);
+
+// Firestore 연결 실패(10초 대기 시간 초과) 방지를 위해 Long Polling 강제 활성화 및 중복 초기화 방지 처리
+let db: Firestore;
+try {
+  db = initializeFirestore(app, {
+    experimentalForceLongPolling: true,
+  });
+} catch (error) {
+  // HMR 등으로 인해 이미 초기화된 경우, getFirestore를 호출하여 기존 인스턴스 안전하게 획득
+  db = getFirestore(app);
+}
 
 export { app, auth, db };

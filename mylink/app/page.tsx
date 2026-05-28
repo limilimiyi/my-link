@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { db } from "@/lib/firebase"
-import { collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, doc, deleteDoc } from "firebase/firestore"
+import { collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, doc, deleteDoc, updateDoc } from "firebase/firestore"
 
 // 로컬 인터페이스 정의로 외부 파일 순환 참조 우려 완전 제거
 interface LinkItem {
@@ -29,6 +29,11 @@ export default function Page() {
   const [links, setLinks] = useState<LinkItem[]>([])
   const [title, setTitle] = useState("")
   const [url, setUrl] = useState("")
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editTitle, setEditTitle] = useState("")
+  const [editUrl, setEditUrl] = useState("")
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
+  const [linkToDelete, setLinkToDelete] = useState<LinkItem | null>(null)
 
   // Firestore 실시간 구독 및 무한 루프 안전 방지 처리 (의존성 배열 및 클린업 기능 극대화)
   useEffect(() => {
@@ -107,18 +112,94 @@ export default function Page() {
     }
   }
 
-  // 실시간 링크 삭제 기능 (이벤트 전파 방지 적용)
-  const handleDeleteLink = async (e: React.MouseEvent, id: string) => {
+  // 실시간 링크 삭제 모달 열기 (이벤트 전파 방지 적용)
+  const handleOpenDeleteModal = (e: React.MouseEvent, link: LinkItem) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setLinkToDelete(link)
+    setIsDeleteModalOpen(true)
+  }
+
+  // 실시간 링크 삭제 모달 닫기
+  const handleCloseDeleteModal = () => {
+    setIsDeleteModalOpen(false)
+    setLinkToDelete(null)
+  }
+
+  // 실시간 링크 삭제 기능 (Firestore deleteDoc)
+  const handleConfirmDelete = async () => {
+    if (!linkToDelete) return
+
+    try {
+      await deleteDoc(doc(db, "users", "anonymous", "links", linkToDelete.id))
+      handleCloseDeleteModal()
+    } catch (error) {
+      console.error("Firestore 삭제 에러:", error)
+      alert("링크를 삭제하는 도중 오류가 발생했습니다.")
+    }
+  }
+
+  // 인라인 수정 시작
+  const handleStartEdit = (e: React.MouseEvent, link: LinkItem) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setEditingId(link.id)
+    setEditTitle(link.title)
+    setEditUrl(link.url)
+  }
+
+  // 인라인 수정 취소
+  const handleCancelEdit = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setEditingId(null)
+    setEditTitle("")
+    setEditUrl("")
+  }
+
+  // 인라인 수정 저장 (빈 칸 검증 + Firestore updateDoc)
+  const handleSaveEdit = async (e: React.MouseEvent, id: string) => {
     e.preventDefault()
     e.stopPropagation()
 
-    if (confirm("정말로 이 링크를 삭제하시겠습니까?")) {
-      try {
-        await deleteDoc(doc(db, "users", "anonymous", "links", id))
-      } catch (error) {
-        console.error("Firestore 삭제 에러:", error)
-        alert("링크를 삭제하는 도중 오류가 발생했습니다.")
-      }
+    const trimmedTitle = editTitle.trim()
+    const trimmedUrl = editUrl.trim()
+
+    // 1. 빈 칸 검증
+    if (!trimmedTitle) {
+      alert("제목을 입력해주세요")
+      return
+    }
+
+    if (!trimmedUrl) {
+      alert("주소를 입력해주세요")
+      return
+    }
+
+    const urlPattern = /^(https?:\/\/)?([\da-z.-]+)\.([a-z.]{2,6})([\/\w .-]*)*\/?$/i
+    if (!urlPattern.test(trimmedUrl)) {
+      alert("올바른 주소를 입력해주세요")
+      return
+    }
+
+    const formattedUrl = trimmedUrl.startsWith("http") ? trimmedUrl : `https://${trimmedUrl}`
+
+    // 2. Firestore updateDoc
+    try {
+      const linkRef = doc(db, "users", "anonymous", "links", id)
+      await updateDoc(linkRef, {
+        title: trimmedTitle,
+        url: formattedUrl,
+        updatedAt: serverTimestamp()
+      })
+
+      // 수정 모드 초기화
+      setEditingId(null)
+      setEditTitle("")
+      setEditUrl("")
+    } catch (error) {
+      console.error("Firestore 수정 에러:", error)
+      alert("데이터를 수정하는 중에 오류가 발생했습니다.")
     }
   }
 
@@ -190,10 +271,70 @@ export default function Page() {
       {/* 🔗 링크 카드 리스트 (실시간 Firestore 연동 & 우측 삭제 버튼 탑재) */}
       <div className="flex w-full max-w-md flex-col gap-4">
         {links.map((link, index) => {
+          const isEditing = editingId === link.id;
           const domain = getDomain(link.url);
           const faviconUrl = domain 
             ? `https://www.google.com/s2/favicons?domain=${domain}&sz=64` 
             : null;
+
+          if (isEditing) {
+            return (
+              <div
+                key={`${link.id}-${index}`}
+                className="w-full"
+              >
+                <Card className="overflow-hidden border border-purple-500 bg-white shadow-md dark:border-purple-500 dark:bg-neutral-900">
+                  <CardContent className="flex flex-col gap-3.5 p-4 animate-fadeIn">
+                    {/* 입력창 레이아웃 */}
+                    <div className="flex flex-col sm:flex-row gap-3 w-full">
+                      <div className="flex-1">
+                        <label className="block text-xs font-semibold text-neutral-500 mb-1 dark:text-neutral-400">
+                          링크 제목
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="예: GitHub"
+                          value={editTitle}
+                          onChange={(e) => setEditTitle(e.target.value)}
+                          className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-sm outline-none transition-all focus:border-purple-500 focus:bg-white dark:border-neutral-800 dark:bg-neutral-950 dark:focus:border-purple-500"
+                        />
+                      </div>
+                      <div className="flex-[1.5]">
+                        <label className="block text-xs font-semibold text-neutral-500 mb-1 dark:text-neutral-400">
+                          연결 주소 (URL)
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="예: github.com"
+                          value={editUrl}
+                          onChange={(e) => setEditUrl(e.target.value)}
+                          className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-sm outline-none transition-all focus:border-purple-500 focus:bg-white dark:border-neutral-800 dark:bg-neutral-950 dark:focus:border-purple-500"
+                        />
+                      </div>
+                    </div>
+                    
+                    {/* 저장 / 취소 버튼 */}
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={handleCancelEdit}
+                        className="rounded-lg border border-neutral-200 px-3.5 py-1.5 text-xs font-semibold text-neutral-600 hover:bg-neutral-50 transition-colors dark:border-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-850"
+                      >
+                        취소
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => handleSaveEdit(e, link.id)}
+                        className="rounded-lg bg-purple-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-purple-700 transition-colors active:scale-[0.98]"
+                      >
+                        저장
+                      </button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            );
+          }
 
           return (
             <a
@@ -231,7 +372,7 @@ export default function Page() {
                     </p>
                   </div>
                   
-                  {/* 우측 아이콘 세트 (Chevron + 삭제 쓰레기통 버튼) */}
+                  {/* 우측 아이콘 세트 (Chevron + 수정/삭제 버튼) */}
                   <div className="flex items-center gap-1">
                     {/* 우측 이동 Chevron */}
                     <div className="text-neutral-400 transition-transform duration-300 group-hover:translate-x-0.5 dark:text-neutral-600 mr-1.5">
@@ -251,9 +392,34 @@ export default function Page() {
                       </svg>
                     </div>
 
+                    {/* 수정 연필 버튼 (이벤트 버블링 차단 완벽 적용) */}
+                    <button
+                      type="button"
+                      onClick={(e) => handleStartEdit(e, link)}
+                      className="rounded-lg p-2 text-neutral-400 hover:bg-neutral-100 hover:text-purple-600 transition-colors focus:outline-none dark:hover:bg-neutral-800"
+                      title="링크 수정"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="h-4 w-4"
+                      >
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                        <path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                      </svg>
+                    </button>
+
                     {/* 쓰레기통 삭제 버튼 (이벤트 버블링 차단 완벽 적용) */}
                     <button
-                      onClick={(e) => handleDeleteLink(e, link.id)}
+                      type="button"
+                      onClick={(e) => handleOpenDeleteModal(e, link)}
                       className="rounded-lg p-2 text-neutral-400 hover:bg-neutral-100 hover:text-red-500 transition-colors focus:outline-none dark:hover:bg-neutral-800"
                       title="링크 삭제"
                     >
@@ -281,6 +447,51 @@ export default function Page() {
           );
         })}
       </div>
+      
+      {/* 🗑️ 삭제 확인 모달 */}
+      {isDeleteModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl border border-neutral-100 dark:bg-neutral-900 dark:border-neutral-800 animate-in zoom-in-95 duration-200">
+            <div className="flex flex-col items-center text-center gap-3">
+              {/* ⚠️ 경고 아이콘 */}
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-50 text-red-500 text-2xl dark:bg-red-950/30 dark:text-red-400">
+                ⚠️
+              </div>
+              <h3 className="text-lg font-bold text-neutral-800 dark:text-neutral-100">
+                정말 삭제하시겠습니까?
+              </h3>
+              <div className="space-y-1.5 mt-1 text-sm text-neutral-500 dark:text-neutral-400">
+                <p>
+                  <span className="font-semibold text-neutral-750 dark:text-neutral-250">
+                    &ldquo;{linkToDelete?.title}&rdquo;
+                  </span>{" "}
+                  링크가 삭제됩니다.
+                </p>
+                <p className="text-xs text-red-500 font-semibold dark:text-red-400 flex items-center justify-center gap-1">
+                  ⚠️ 이 작업은 되돌릴 수 없습니다
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex w-full gap-2.5 mt-6">
+              <button
+                type="button"
+                onClick={handleCloseDeleteModal}
+                className="flex-1 rounded-xl border border-neutral-200 bg-white py-2.5 text-sm font-semibold text-neutral-600 shadow-sm transition-all hover:bg-neutral-50 active:scale-[0.98] dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-350 dark:hover:bg-neutral-850"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                className="flex-1 rounded-xl bg-red-500 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-red-600 active:scale-[0.98]"
+              >
+                삭제하기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 심플 푸터 */}
       <footer className="mt-auto pt-16 text-center text-xs text-neutral-400 dark:text-neutral-600">
