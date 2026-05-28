@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from "react"
 import { Card, CardContent } from "@/components/ui/card"
-import { db } from "@/lib/firebase"
+import { db, auth } from "@/lib/firebase"
 import { collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, doc, deleteDoc, updateDoc, setDoc } from "firebase/firestore"
+import { GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from "firebase/auth"
 import { dummyLinks, LinkItem } from "@/data/links"
 
 // URL에서 도메인을 파싱해주는 헬퍼 함수
@@ -19,7 +20,7 @@ const getDomain = (url: string) => {
 }
 
 export default function Page() {
-  const [links, setLinks] = useState<LinkItem[]>([])
+  const [links, setLinks] = useState<LinkItem[]>(dummyLinks)
   const [title, setTitle] = useState("")
   const [url, setUrl] = useState("")
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -28,13 +29,33 @@ export default function Page() {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
   const [linkToDelete, setLinkToDelete] = useState<LinkItem | null>(null)
   const [deletedDummyIds, setDeletedDummyIds] = useState<string[]>([])
+  const [user, setUser] = useState<User | null>(null)
+
+  // Auth 상태 변경 실시간 감시 (try-catch 예외 처리 보완)
+  useEffect(() => {
+    if (!auth) return
+
+    try {
+      const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+        setUser(currentUser)
+      }, (error) => {
+        console.error("Auth 상태 변경 중 오류 감지:", error)
+      })
+      return () => unsubscribeAuth()
+    } catch (error) {
+      console.error("onAuthStateChanged 등록 중 에러 발생:", error)
+    }
+  }, [])
 
   // Firestore 실시간 구독 및 무한 루프 안전 방지 처리 (의존성 배열 및 클린업 기능 극대화)
   useEffect(() => {
     if (!db) return;
 
+    // 로그인 상태면 유저 고유 uid 경로 조회, 로그아웃 상태면 anonymous 경로 조회 (조회=누구나)
+    const userPath = user ? user.uid : "anonymous"
+
     const q = query(
-      collection(db, "users", "anonymous", "links"),
+      collection(db, "users", userPath, "links"),
       orderBy("createdAt", "desc")
     )
 
@@ -68,7 +89,38 @@ export default function Page() {
     )
 
     return () => unsubscribe()
-  }, [deletedDummyIds])
+  }, [user, deletedDummyIds])
+
+  // 구글 소셜 로그인 (try-catch 예외 처리 적용하여 사이트 멈춤 현상 원천 해결)
+  const handleGoogleLogin = async () => {
+    if (!auth) {
+      alert("Firebase Authentication 모듈이 로드되지 않았습니다. 설정을 확인해 주세요.")
+      return
+    }
+    const provider = new GoogleAuthProvider()
+    try {
+      await signInWithPopup(auth, provider)
+    } catch (error: any) {
+      console.error("구글 로그인 실패:", error)
+      if (error.code === "auth/configuration-not-found") {
+        alert("⚠️ Firebase 콘솔에서 Authentication 기능(Google 로그인 제공업체)이 비활성화 상태입니다. 설정을 완료해 주세요.")
+      } else {
+        alert("로그인 도중 에러가 발생했습니다: " + error.message)
+      }
+    }
+  }
+
+  // 로그아웃 (try-catch 적용)
+  const handleLogout = async () => {
+    if (!auth) return
+    try {
+      await signOut(auth)
+      setEditingId(null)
+    } catch (error: any) {
+      console.error("로그아웃 실패:", error)
+      alert("로그아웃 처리 중 에러가 발생했습니다.")
+    }
+  }
 
   const handleAddLink = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -96,9 +148,10 @@ export default function Page() {
 
     // 3. Firestore에 저장
     const formattedUrl = trimmedUrl.startsWith("http") ? trimmedUrl : `https://${trimmedUrl}`
+    const userPath = user ? user.uid : "anonymous"
     
     try {
-      await addDoc(collection(db, "users", "anonymous", "links"), {
+      await addDoc(collection(db, "users", userPath, "links"), {
         title: trimmedTitle,
         url: formattedUrl,
         createdAt: serverTimestamp(),
@@ -132,13 +185,15 @@ export default function Page() {
   const handleConfirmDelete = async () => {
     if (!linkToDelete) return
 
+    const userPath = user ? user.uid : "anonymous"
+
     try {
       // 로컬 더미 데이터일 경우 삭제 리스트에 추가하여 UI 즉시 갱신
       if (linkToDelete.id.length === 1 || ["1", "2", "3", "4", "5"].includes(linkToDelete.id)) {
         setDeletedDummyIds(prev => [...prev, linkToDelete.id])
       }
 
-      await deleteDoc(doc(db, "users", "anonymous", "links", linkToDelete.id))
+      await deleteDoc(doc(db, "users", userPath, "links", linkToDelete.id))
       handleCloseDeleteModal()
     } catch (error) {
       console.error("Firestore 삭제 에러:", error)
@@ -190,10 +245,11 @@ export default function Page() {
     }
 
     const formattedUrl = trimmedUrl.startsWith("http") ? trimmedUrl : `https://${trimmedUrl}`
+    const userPath = user ? user.uid : "anonymous"
 
     // 2. Firestore 저장 (updateDoc 또는 setDoc 폴백)
     try {
-      const linkRef = doc(db, "users", "anonymous", "links", id)
+      const linkRef = doc(db, "users", userPath, "links", id)
       try {
         await updateDoc(linkRef, {
           title: trimmedTitle,
@@ -226,8 +282,44 @@ export default function Page() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-start bg-[#F8F9FA] px-4 py-16 dark:bg-neutral-950">
+    <div className="flex min-h-screen flex-col items-center justify-start bg-[#F8F9FA] px-4 py-8 sm:py-12 dark:bg-neutral-950">
       
+      {/* 🧭 네비게이션 헤더 */}
+      <header className="w-full max-w-md flex items-center justify-between py-3 px-4 mb-8 rounded-xl border border-neutral-200/80 bg-white/80 backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-900/80 shadow-xs">
+        <div className="flex items-center gap-2">
+          <span className="text-lg">🔗</span>
+          <span className="font-bold text-neutral-800 dark:text-neutral-50 text-sm">MyLink</span>
+        </div>
+        <div className="flex items-center gap-3">
+          {user ? (
+            <div className="flex items-center gap-2.5 animate-fadeIn">
+              <span className="text-xs font-semibold text-neutral-600 dark:text-neutral-350">
+                {user.displayName || "홍길동"}님
+              </span>
+              <button
+                onClick={handleLogout}
+                className="rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-neutral-600 hover:bg-neutral-50 hover:text-red-500 transition-colors dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-450 dark:hover:bg-neutral-850"
+              >
+                로그아웃
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={handleGoogleLogin}
+              className="flex items-center gap-2 rounded-lg bg-neutral-900 px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-neutral-800 transition-colors active:scale-[0.98] dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-100"
+            >
+              <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#FBBC05"/>
+                <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335"/>
+              </svg>
+              Google 로그인
+            </button>
+          )}
+        </div>
+      </header>
+
       {/* 🧑‍💻 프로필 헤더 영역 */}
       <div className="flex flex-col items-center text-center mb-8 max-w-md w-full">
         <div className="relative">
@@ -418,7 +510,7 @@ export default function Page() {
                     <button
                       type="button"
                       onClick={(e) => handleStartEdit(e, link)}
-                      className="rounded-lg p-2 text-neutral-400 hover:bg-neutral-100 hover:text-purple-650 transition-colors focus:outline-none dark:hover:bg-neutral-800"
+                      className="rounded-lg p-2 text-neutral-400 hover:bg-neutral-100 hover:text-purple-600 transition-colors focus:outline-none dark:hover:bg-neutral-800"
                       title="링크 수정"
                     >
                       <svg

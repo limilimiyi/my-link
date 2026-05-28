@@ -27,7 +27,12 @@ if (!isConfigComplete) {
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
 // Authentication 초기화
-const auth = getAuth(app);
+let auth: any = null;
+try {
+  auth = getAuth(app);
+} catch (error) {
+  console.error("⚠️ Firebase Auth 초기화 중 에러 발생 (콘솔 확인 필요):", error);
+}
 
 // Firestore 연결 실패(10초 대기 시간 초과) 방지를 위해 Long Polling 강제 활성화 및 중복 초기화 방지 처리
 let db: Firestore;
