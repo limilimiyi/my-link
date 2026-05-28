@@ -2,9 +2,16 @@
 
 import { useState, useEffect } from "react"
 import { Card, CardContent } from "@/components/ui/card"
-import { LinkItem } from "@/data/links"
 import { db } from "@/lib/firebase"
-import { collection, addDoc, serverTimestamp, query, orderBy, onSnapshot } from "firebase/firestore"
+import { collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, doc, deleteDoc } from "firebase/firestore"
+
+// 로컬 인터페이스 정의로 외부 파일 순환 참조 우려 완전 제거
+interface LinkItem {
+  id: string
+  title: string
+  url: string
+  icon?: string
+}
 
 // URL에서 도메인을 파싱해주는 헬퍼 함수
 const getDomain = (url: string) => {
@@ -23,28 +30,35 @@ export default function Page() {
   const [title, setTitle] = useState("")
   const [url, setUrl] = useState("")
 
-  // Firestore에서 실시간으로 링크 목록 불러오기
+  // Firestore 실시간 구독 및 무한 루프 안전 방지 처리 (의존성 배열 및 클린업 기능 극대화)
   useEffect(() => {
+    if (!db) return;
+
     const q = query(
       collection(db, "users", "anonymous", "links"),
       orderBy("createdAt", "desc")
     )
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const fetchedLinks: LinkItem[] = []
-      snapshot.forEach((doc) => {
-        const data = doc.data()
-        fetchedLinks.push({
-          id: doc.id,
-          title: data.title || "",
-          url: data.url || "",
-          icon: "link"
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const fetchedLinks: LinkItem[] = []
+        snapshot.forEach((doc) => {
+          const data = doc.data()
+          fetchedLinks.push({
+            id: doc.id,
+            title: data.title || "",
+            url: data.url || "",
+            icon: "link"
+          })
         })
-      })
-      setLinks(fetchedLinks)
-    }, (error) => {
-      console.error("Firestore 로딩 에러:", error)
-    })
+        setLinks(fetchedLinks)
+      },
+      (error) => {
+        console.error("Firestore 로딩 에러:", error)
+        setLinks([])
+      }
+    )
 
     return () => unsubscribe()
   }, [])
@@ -90,6 +104,21 @@ export default function Page() {
     } catch (error) {
       console.error("Firestore 저장 에러:", error)
       alert("데이터를 저장하는 중에 오류가 발생했습니다.")
+    }
+  }
+
+  // 실시간 링크 삭제 기능 (이벤트 전파 방지 적용)
+  const handleDeleteLink = async (e: React.MouseEvent, id: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+
+    if (confirm("정말로 이 링크를 삭제하시겠습니까?")) {
+      try {
+        await deleteDoc(doc(db, "users", "anonymous", "links", id))
+      } catch (error) {
+        console.error("Firestore 삭제 에러:", error)
+        alert("링크를 삭제하는 도중 오류가 발생했습니다.")
+      }
     }
   }
 
@@ -158,9 +187,9 @@ export default function Page() {
         </CardContent>
       </Card>
 
-      {/* 🔗 링크 카드 리스트 (실시간 렌더링) */}
+      {/* 🔗 링크 카드 리스트 (실시간 Firestore 연동 & 우측 삭제 버튼 탑재) */}
       <div className="flex w-full max-w-md flex-col gap-4">
-        {links.map((link) => {
+        {links.map((link, index) => {
           const domain = getDomain(link.url);
           const faviconUrl = domain 
             ? `https://www.google.com/s2/favicons?domain=${domain}&sz=64` 
@@ -168,7 +197,7 @@ export default function Page() {
 
           return (
             <a
-              key={link.id}
+              key={`${link.id}-${index}`}
               href={link.url}
               target="_blank"
               rel="noopener noreferrer"
@@ -176,7 +205,7 @@ export default function Page() {
             >
               <Card className="overflow-hidden border border-neutral-200/80 bg-white/95 shadow-sm transition-all duration-300 hover:border-neutral-300 hover:bg-white hover:shadow-md dark:border-neutral-800 dark:bg-neutral-900/95 dark:hover:border-neutral-700 dark:hover:bg-neutral-900">
                 <CardContent className="flex items-center gap-4 p-4">
-                  {/* 구글 API를 이용한 파비콘 자동 추출 아이콘 */}
+                  {/* 구글 파비콘 */}
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-neutral-50 border border-neutral-100 overflow-hidden dark:bg-neutral-850 dark:border-neutral-800">
                     {faviconUrl ? (
                       <img 
@@ -192,7 +221,7 @@ export default function Page() {
                     )}
                   </div>
                   
-                  {/* 링크 제목 및 주소 */}
+                  {/* 정보 */}
                   <div className="flex-1 min-w-0">
                     <h2 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100 group-hover:text-black dark:group-hover:text-white">
                       {link.title}
@@ -202,22 +231,49 @@ export default function Page() {
                     </p>
                   </div>
                   
-                  {/* 우측 이동 인디케이터 */}
-                  <div className="text-neutral-400 transition-transform duration-300 group-hover:translate-x-0.5 dark:text-neutral-600">
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      className="h-4 w-4"
+                  {/* 우측 아이콘 세트 (Chevron + 삭제 쓰레기통 버튼) */}
+                  <div className="flex items-center gap-1">
+                    {/* 우측 이동 Chevron */}
+                    <div className="text-neutral-400 transition-transform duration-300 group-hover:translate-x-0.5 dark:text-neutral-600 mr-1.5">
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="h-4 w-4"
+                      >
+                        <polyline points="9 18 15 12 9 6" />
+                      </svg>
+                    </div>
+
+                    {/* 쓰레기통 삭제 버튼 (이벤트 버블링 차단 완벽 적용) */}
+                    <button
+                      onClick={(e) => handleDeleteLink(e, link.id)}
+                      className="rounded-lg p-2 text-neutral-400 hover:bg-neutral-100 hover:text-red-500 transition-colors focus:outline-none dark:hover:bg-neutral-800"
+                      title="링크 삭제"
                     >
-                      <polyline points="9 18 15 12 9 6" />
-                    </svg>
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="h-4 w-4"
+                      >
+                        <path d="M3 6h18" />
+                        <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                        <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                      </svg>
+                    </button>
                   </div>
                 </CardContent>
               </Card>
