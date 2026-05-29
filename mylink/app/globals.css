@@ -115,6 +115,9 @@
     --radius-3xl: calc(var(--radius) * 2.2);
     --radius-4xl: calc(var(--radius) * 2.6);
     --font-sans: var(--font-sans);
+    --font-black-han: var(--font-black-han);
+    --font-hi-melody: var(--font-hi-melody);
+    --font-bagel: var(--font-bagel);
 }
 
 @layer base {

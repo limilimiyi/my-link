@@ -8,6 +8,17 @@ import { GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User 
 import { dummyLinks, LinkItem } from "@/data/links"
 import Link from "next/link"
 
+// 🐆 테마용 호피 무늬 패턴 스타일 (불규칙한 디자인)
+const leopardPattern = {
+  backgroundImage: `radial-gradient(ellipse at 10px 10px, #8b5a2b 4px, #3d2a1c 6.5px, transparent 7px),
+                    radial-gradient(circle at 28px 12px, #3d2a1c 2.5px, transparent 3px),
+                    radial-gradient(ellipse at 38px 28px, #8b5a2b 5px, #3d2a1c 8px, transparent 8.5px),
+                    radial-gradient(circle at 18px 38px, #3d2a1c 3.5px, transparent 4px),
+                    radial-gradient(ellipse at 8px 30px, #8b5a2b 3px, #3d2a1c 5.5px, transparent 6px)`,
+  backgroundColor: '#fcd34d', // yellow-300
+  backgroundSize: '48px 48px'
+};
+
 // URL에서 도메인을 파싱해주는 헬퍼 함수
 const getDomain = (url: string) => {
   try {
@@ -31,22 +42,20 @@ export default function Page() {
   const [linkToDelete, setLinkToDelete] = useState<LinkItem | null>(null)
   const [deletedDummyIds, setDeletedDummyIds] = useState<string[]>([])
   const [user, setUser] = useState<User | null>(null)
+  const [loading, setLoading] = useState(true)
   const [profile, setProfile] = useState<{ displayName: string; username: string; bio: string } | null>(null)
 
-  // Auth 상태 변경 실시간 감시 (try-catch 예외 처리 보완)
+  // Auth 상태 변경 실시간 감시
   useEffect(() => {
-    if (!auth) return
-
-    try {
-      const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
-        setUser(currentUser)
-      }, (error) => {
-        console.error("Auth 상태 변경 중 오류 감지:", error)
-      })
-      return () => unsubscribeAuth()
-    } catch (error) {
-      console.error("onAuthStateChanged 등록 중 에러 발생:", error)
+    if (!auth) {
+      setLoading(false)
+      return
     }
+    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser)
+      setLoading(false)
+    })
+    return () => unsubscribeAuth()
   }, [])
 
   // 프로필 실시간 동적 연동
@@ -55,140 +64,74 @@ export default function Page() {
       setProfile(null)
       return
     }
-
-    try {
-      const profileRef = doc(db, "users", user.uid, "profile", "info")
-      const unsubscribe = onSnapshot(profileRef, (docSnap) => {
-        if (docSnap.exists()) {
-          const data = docSnap.data()
-          setProfile({
-            displayName: data.displayName || "",
-            username: data.username || "",
-            bio: data.bio || ""
-          })
-        } else {
-          setProfile(null)
-        }
-      }, (error) => {
-        console.error("메인 페이지 프로필 실시간 로딩 에러:", error)
-      })
-      return () => unsubscribe()
-    } catch (e) {
-      console.error("onSnapshot profile registration failed:", e)
-    }
+    const profileRef = doc(db, "users", user.uid, "profile", "info")
+    const unsubscribe = onSnapshot(profileRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data()
+        setProfile({
+          displayName: data.displayName || "",
+          username: data.username || "",
+          bio: data.bio || ""
+        })
+      }
+    })
+    return () => unsubscribe()
   }, [user])
 
-  // Firestore 실시간 구독 및 무한 루프 안전 방지 처리 (의존성 배열 및 클린업 기능 극대화)
+  // Firestore 실시간 구독
   useEffect(() => {
-    if (!db) return;
-
-    // 로그인 상태일 때만 유저 고유 uid 경로 조회
-    if (!user) {
+    if (!db || !user) {
       setLinks(dummyLinks.filter(l => !deletedDummyIds.includes(l.id)))
       return
     }
-
     const q = query(
       collection(db, "users", user.uid, "links"),
       orderBy("createdAt", "desc")
     )
-
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const fetchedLinks: LinkItem[] = []
-        snapshot.forEach((doc) => {
-          const data = doc.data()
-          fetchedLinks.push({
-            id: doc.id,
-            title: data.title || "",
-            url: data.url || "",
-            icon: "link",
-            clickCount: data.clickCount || 0
-          })
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetchedLinks: LinkItem[] = []
+      snapshot.forEach((doc) => {
+        const data = doc.data()
+        fetchedLinks.push({
+          id: doc.id,
+          title: data.title || "",
+          url: data.url || "",
+          icon: "link",
+          clickCount: data.clickCount || 0
         })
-
-        // 더미 데이터와 병합 처리 (중복 방지 및 UI 삭제 반영)
-        const fetchedIds = new Set(fetchedLinks.map(l => l.id))
-        const uniqueDummyLinks = dummyLinks.filter(
-          l => !fetchedIds.has(l.id) && !deletedDummyIds.includes(l.id)
-        )
-        setLinks([...fetchedLinks, ...uniqueDummyLinks])
-      },
-      (error) => {
-        console.error("Firestore 로딩 에러:", error)
-        // 로딩 에러 시에도 더미 데이터는 노출
-        const uniqueDummyLinks = dummyLinks.filter(l => !deletedDummyIds.includes(l.id))
-        setLinks(uniqueDummyLinks)
-      }
-    )
-
+      })
+      const fetchedIds = new Set(fetchedLinks.map(l => l.id))
+      const uniqueDummyLinks = dummyLinks.filter(
+        l => !fetchedIds.has(l.id) && !deletedDummyIds.includes(l.id)
+      )
+      setLinks([...fetchedLinks, ...uniqueDummyLinks])
+    })
     return () => unsubscribe()
   }, [user, deletedDummyIds])
 
-  // 구글 소셜 로그인 (try-catch 예외 처리 적용하여 사이트 멈춤 현상 원천 해결)
   const handleGoogleLogin = async () => {
-    if (!auth) {
-      alert("Firebase Authentication 모듈이 로드되지 않았습니다. 설정을 확인해 주세요.")
-      return
-    }
+    if (!auth) return
     const provider = new GoogleAuthProvider()
     try {
       await signInWithPopup(auth, provider)
-    } catch (error: any) {
-      console.error("구글 로그인 실패:", error)
-      if (error.code === "auth/configuration-not-found") {
-        alert("⚠️ Firebase 콘솔에서 Authentication 기능(Google 로그인 제공업체)이 비활성화 상태입니다. 설정을 완료해 주세요.")
-      } else {
-        alert("로그인 도중 에러가 발생했습니다: " + error.message)
-      }
+    } catch (error) {
+      console.error("로그인 실패:", error)
     }
   }
 
-  // 로그아웃 (try-catch 적용)
   const handleLogout = async () => {
     if (!auth) return
-    try {
-      await signOut(auth)
-      setEditingId(null)
-    } catch (error: any) {
-      console.error("로그아웃 실패:", error)
-      alert("로그아웃 처리 중 에러가 발생했습니다.")
-    }
+    await signOut(auth)
+    setEditingId(null)
   }
 
   const handleAddLink = async (e: React.FormEvent) => {
     e.preventDefault()
-
-    if (!user) {
-      alert("로그인 후 이용 가능합니다.")
-      return
-    }
-
-    // 1. 제목/주소 가져오기
+    if (!user) return
     const trimmedTitle = title.trim()
     const trimmedUrl = url.trim()
-
-    // 2. 검증
-    if (!trimmedTitle) {
-      alert("제목을 입력해주세요")
-      return
-    }
-
-    if (!trimmedUrl) {
-      alert("주소를 입력해주세요")
-      return
-    }
-
-    const urlPattern = /^(https?:\/\/)?([\da-z.-]+)\.([a-z.]{2,6})([\/\w .-]*)*\/?$/i
-    if (!urlPattern.test(trimmedUrl)) {
-      alert("올바른 주소를 입력해주세요")
-      return
-    }
-
-    // 3. Firestore에 저장
+    if (!trimmedTitle || !trimmedUrl) return
     const formattedUrl = trimmedUrl.startsWith("http") ? trimmedUrl : `https://${trimmedUrl}`
-    
     try {
       await addDoc(collection(db, "users", user.uid, "links"), {
         title: trimmedTitle,
@@ -197,472 +140,262 @@ export default function Page() {
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       })
-
-      })
-
-      // 입력 필드 초기화
       setTitle("")
       setUrl("")
     } catch (error) {
-      console.error("Firestore 저장 에러:", error)
-      alert("데이터를 저장하는 중에 오류가 발생했습니다.")
+      console.error("저장 에러:", error)
     }
   }
 
-  // 실시간 링크 삭제 모달 열기 (이벤트 전파 방지 적용)
   const handleOpenDeleteModal = (e: React.MouseEvent, link: LinkItem) => {
-    e.preventDefault()
-    e.stopPropagation()
-
-    if (!user) {
-      alert("로그인 후 삭제 가능합니다.")
-      return
-    }
-
+    e.preventDefault(); e.stopPropagation()
     setLinkToDelete(link)
     setIsDeleteModalOpen(true)
   }
 
-  // 실시간 링크 삭제 모달 닫기
-  const handleCloseDeleteModal = () => {
-    setIsDeleteModalOpen(false)
-    setLinkToDelete(null)
-  }
-
-  // 실시간 링크 삭제 기능 (Firestore deleteDoc)
   const handleConfirmDelete = async () => {
     if (!linkToDelete || !user) return
-
     try {
-      // 로컬 더미 데이터일 경우 삭제 리스트에 추가하여 UI 즉시 갱신
       if (linkToDelete.id.length === 1 || ["1", "2", "3", "4", "5"].includes(linkToDelete.id)) {
         setDeletedDummyIds(prev => [...prev, linkToDelete.id])
       }
-
       await deleteDoc(doc(db, "users", user.uid, "links", linkToDelete.id))
-      handleCloseDeleteModal()
+      setIsDeleteModalOpen(false)
     } catch (error) {
-      console.error("Firestore 삭제 에러:", error)
-      alert("링크를 삭제하는 도중 오류가 발생했습니다.")
-    }
-  }
-
-  // 인라인 수정 시작
-  const handleStartEdit = (e: React.MouseEvent, link: LinkItem) => {
-    e.preventDefault()
-    e.stopPropagation()
-
-    if (!user) {
-      alert("로그인 후 수정 가능합니다.")
-      return
-    }
-
-    setEditingId(link.id)
-    setEditTitle(link.title)
-    setEditUrl(link.url)
-  }
-
-  // 인라인 수정 취소
-  const handleCancelEdit = (e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setEditingId(null)
-    setEditTitle("")
-    setEditUrl("")
-  }
-
-  // 인라인 수정 저장 (빈 칸 검증 + Firestore updateDoc / setDoc 폴백)
-  const handleSaveEdit = async (e: React.MouseEvent, id: string) => {
-    e.preventDefault()
-    e.stopPropagation()
-
-    if (!user) return
-
-    const trimmedTitle = editTitle.trim()
-    const trimmedUrl = editUrl.trim()
-
-    // 1. 빈 칸 검증
-    if (!trimmedTitle) {
-      alert("제목을 입력해주세요")
-      return
-    }
-
-    if (!trimmedUrl) {
-      alert("주소를 입력해주세요")
-      return
-    }
-
-    const urlPattern = /^(https?:\/\/)?([\da-z.-]+)\.([a-z.]{2,6})([\/\w .-]*)*\/?$/i
-    if (!urlPattern.test(trimmedUrl)) {
-      alert("올바른 주소를 입력해주세요")
-      return
-    }
-
-    const formattedUrl = trimmedUrl.startsWith("http") ? trimmedUrl : `https://${trimmedUrl}`
-    const userPath = user ? user.uid : "anonymous"
-
-    // 2. Firestore 저장 (updateDoc 또는 setDoc 폴백)
-    try {
-      const linkRef = doc(db, "users", userPath, "links", id)
-      try {
-        await updateDoc(linkRef, {
-          title: trimmedTitle,
-          url: formattedUrl,
-          updatedAt: serverTimestamp()
-        })
-      } catch (error: any) {
-        // 더미 데이터 수정 시 문서가 아직 생성되지 않았을 수 있으므로 setDoc으로 자동 생성
-        await setDoc(linkRef, {
-          title: trimmedTitle,
-          url: formattedUrl,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        }, { merge: true })
-
-        // 로컬 더미 데이터 목록에서 제거 (Firestore 실시간 snapshot이 real document로 덮어씀)
-        if (id.length === 1 || ["1", "2", "3", "4", "5"].includes(id)) {
-          setDeletedDummyIds(prev => [...prev, id])
-        }
-      }
-
-      // 수정 모드 초기화
-      setEditingId(null)
-      setEditTitle("")
-      setEditUrl("")
-    } catch (error) {
-      console.error("Firestore 수정 에러:", error)
-      alert("데이터를 수정하는 중에 오류가 발생했습니다.")
+      console.error("삭제 에러:", error)
     }
   }
 
   const handleLinkClick = async (e: React.MouseEvent<HTMLAnchorElement>, linkId: string) => {
-    // 3. 에러 처리 : 로그인 확인
-    if (!user || !auth || !auth.currentUser) {
-      console.error("클릭 카운트 저장 실패: 로그인 상태가 아닙니다.")
-      return
-    }
-
-    // 더미 데이터 클릭 방지
-    const isDummy = linkId.length === 1 || ["1", "2", "3", "4", "5"].includes(linkId)
-    if (isDummy) {
-      console.warn("더미 링크는 클릭 카운트를 기록하지 않습니다.")
-      return
-    }
-
+    if (!user) return
+    if (linkId.length === 1 || ["1", "2", "3", "4", "5"].includes(linkId)) return
     try {
       const linkRef = doc(db, "users", user.uid, "links", linkId)
-      await updateDoc(linkRef, {
-        clickCount: increment(1)
-      })
+      await updateDoc(linkRef, { clickCount: increment(1) })
     } catch (error) {
-      console.error("클릭 카운트 저장 중 에러 발생:", error)
+      console.error("클릭 카운트 에러:", error)
     }
   }
 
+  // --- 💖 스타일 렌더링 (로그인 전) ---
+  if (!user && !loading) {
+    return (
+      <div className="flex min-h-screen flex-col bg-[#FAFAFA] font-[var(--font-hi-melody)] selection:bg-pink-500/30 overflow-x-hidden">
+        {/* 🧭 네비게이션 */}
+        <nav className="fixed top-0 w-full z-50 border-b-4 border-pink-500 bg-white/90 backdrop-blur-xl">
+          <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
+            <div className="flex items-center gap-2 group cursor-default">
+              <span className="text-3xl animate-bounce">🎀</span>
+              <span className="text-3xl font-[var(--font-bagel)] text-pink-500 tracking-tighter italic drop-shadow-sm group-hover:text-yellow-500 transition-colors">MyLink</span>
+              <span className="text-2xl animate-pulse">✨</span>
+            </div>
+            <Link
+              href="/login"
+              className="group relative overflow-hidden rounded-2xl bg-pink-500 px-8 py-3 text-sm font-[var(--font-bagel)] text-white shadow-[4px_4px_0px_0px_rgba(252,211,77,1)] transition-all hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none active:scale-95 block"
+            >
+              로그인 💖
+            </Link>
+          </div>
+        </nav>
+
+        {/* 🌟 히어로 */}
+        <main className="flex-1 flex flex-col items-center justify-center pt-48 pb-20 px-4 text-center relative">
+          <div className="absolute top-0 left-0 w-full h-full pointer-events-none overflow-hidden -z-10 text-xl">
+             <span className="absolute top-[10%] left-[5%] text-4xl animate-pulse opacity-50">✨</span>
+             <span className="absolute top-[20%] right-[10%] text-5xl animate-bounce opacity-40">💖</span>
+             <span className="absolute bottom-[15%] left-[15%] text-4xl animate-pulse opacity-60 delay-300">💅</span>
+             <span className="absolute bottom-[25%] right-[5%] text-6xl animate-bounce opacity-30 delay-700">🦋</span>
+          </div>
+
+          <div className="animate-in fade-in slide-in-from-bottom-4 duration-700 delay-100 fill-mode-both">
+            <span className="inline-block rounded-full bg-yellow-300 px-6 py-2.5 text-xl font-bold text-pink-600 mb-8 border-2 border-pink-500 shadow-[6px_6px_0px_0px_rgba(236,72,153,1)] rotate-[-1deg]">
+              ✨ 30분 만에 끝내는 초강력 퍼스널 브랜딩 ✨
+            </span>
+          </div>
+          
+          <h1 className="text-8xl sm:text-9xl font-[var(--font-bagel)] tracking-tighter text-neutral-900 mb-10 animate-in fade-in slide-in-from-bottom-6 duration-700 delay-200 fill-mode-both italic">
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-pink-500 via-pink-400 to-yellow-500 drop-shadow-[0_6px_0_rgba(0,0,0,0.1)] pr-4">마이링크</span>
+          </h1>
+          
+          <p className="text-4xl sm:text-5xl text-pink-500 font-bold mb-16 max-w-none w-full animate-in fade-in slide-in-from-bottom-8 duration-700 delay-300 fill-mode-both leading-tight whitespace-nowrap">
+            세상에서 제일 <span className="text-yellow-500 underline decoration-pink-500 decoration-8 underline-offset-8">귀엽게</span> 나를 표현해봐! 💅✨
+          </p>
+          
+          <Link
+            href="/login"
+            className="group relative inline-flex items-center justify-center overflow-hidden rounded-[2.5rem] bg-pink-500 px-16 py-7 font-[var(--font-bagel)] text-3xl text-white transition-all duration-300 hover:scale-110 hover:rotate-2 shadow-[12px_12px_0px_0px_rgba(252,211,77,1)]"
+          >
+            <div className="absolute top-0 right-0 w-28 h-full opacity-90 pointer-events-none" style={{ ...leopardPattern, clipPath: 'polygon(100% 0, 100% 100%, 0 0)' }}></div>
+            <span className="relative z-10 flex items-center gap-4">
+              지금 시작하기 💖
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 animate-bounce-x" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clipRule="evenodd" />
+              </svg>
+            </span>
+          </Link>
+        </main>
+
+        {/* 🚀 기능 */}
+        <section className="bg-white py-32 border-t-8 border-pink-500 relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-80 h-80 opacity-50 pointer-events-none" style={{ ...leopardPattern, clipPath: 'polygon(0 0, 100% 0, 0 100%)' }}></div>
+          <div className="absolute bottom-0 right-0 w-80 h-80 opacity-50 pointer-events-none" style={{ ...leopardPattern, clipPath: 'polygon(100% 100%, 100% 0, 0 100%)' }}></div>
+          <div className="mx-auto max-w-6xl px-6 pt-10 text-center">
+            <h2 className="text-7xl font-[var(--font-bagel)] text-pink-600 italic tracking-tighter mb-20 drop-shadow-sm">✨ 나만의 필수템! ✨</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-12 text-2xl">
+              {[
+                { t: "링크 관리", d: "쉽고 빠르게! 수정하고 삭제하는 것도 완전 쉬워. 💅", i: "🔗", c: "border-pink-500", s: "rgba(252,211,77,1)" },
+                { t: "클릭 통계", d: "누가 눌렀을까? 실시간 대시보드도 완전 대박! ✨", i: "📈", c: "border-yellow-400", s: "rgba(236,72,153,1)" },
+                { t: "개인 URL", d: "나만의 고유 ID로 친구들과 연결돼봐. 💖", i: "👱‍♀️", c: "border-pink-500", s: "rgba(252,211,77,1)" }
+              ].map((item, idx) => (
+                <div key={idx} className={`group relative overflow-hidden rounded-[3rem] border-[6px] ${item.c} bg-white p-12 transition-all hover:-translate-y-4 hover:shadow-[20px_20px_0px_0px_${item.s}]`}>
+                  <div className="absolute top-0 right-0 w-32 h-32 opacity-80 pointer-events-none" style={{ ...leopardPattern, clipPath: 'polygon(100% 0, 100% 100%, 0 0)' }}></div>
+                  <div className="mb-10 text-7xl">{item.i}</div>
+                  <h3 className="mb-6 text-4xl font-[var(--font-bagel)] text-pink-600">{item.t}</h3>
+                  <p className="font-bold text-neutral-600">{item.d}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <footer className="bg-pink-100 py-20 text-center border-t-8 border-pink-500">
+          <p className="text-4xl text-pink-500 font-[var(--font-bagel)] italic tracking-tighter mb-4">© 2026 MyLink. Stay Kawaii! 🎀💅✨</p>
+          <div className="flex justify-center gap-4">
+            <span className="text-4xl animate-bounce">🐆</span>
+            <span className="text-4xl animate-bounce delay-100">💄</span>
+            <span className="text-4xl animate-bounce delay-200">💖</span>
+          </div>
+        </footer>
+      </div>
+    )
+  }
+
+  // --- 💖 스타일 렌더링 (로그인 후 대시보드) ---
   return (
-    <div className="flex min-h-screen flex-col items-center justify-start bg-[#F8F9FA] px-4 py-8 sm:py-12 dark:bg-neutral-950">
-      
-      {/* 🧭 네비게이션 헤더 */}
-      <header className="w-full max-w-md flex items-center justify-between py-3 px-4 mb-8 rounded-xl border border-neutral-200/80 bg-white/80 backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-900/80 shadow-xs">
+    <div className="flex min-h-screen flex-col items-center justify-start bg-[#FAFAFA] px-4 py-8 sm:py-12 font-[var(--font-hi-melody)] selection:bg-pink-500/30">
+      {/* 🧭 네비게이션 */}
+      <header className="w-full max-w-xl flex items-center justify-between py-4 px-6 mb-12 rounded-3xl border-4 border-pink-500 bg-white/90 shadow-[8px_8px_0px_0px_rgba(252,211,77,1)] animate-fadeIn font-[var(--font-bagel)]">
         <div className="flex items-center gap-2">
-          <span className="text-lg">🔗</span>
-          <span className="font-bold text-neutral-800 dark:text-neutral-50 text-sm">MyLink</span>
+          <span className="text-2xl animate-pulse">🎀</span>
+          <span className="font-black text-pink-500 text-xl italic tracking-tighter">MyLink</span>
         </div>
         <div className="flex items-center gap-3">
-          {user ? (
-            <div className="flex items-center gap-2 animate-fadeIn">
-              <span className="text-xs font-semibold text-neutral-600 dark:text-neutral-350 mr-1">
-                {profile?.displayName || user.displayName || "홍길동"}님
-              </span>
-              <Link
-                href="/mypage"
-                className="rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-neutral-600 hover:bg-neutral-50 transition-colors dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-350 dark:hover:bg-neutral-850"
-              >
-                마이페이지
-              </Link>
-              <Link
-                href="/stats"
-                className="rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-neutral-600 hover:bg-neutral-50 transition-colors dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-350 dark:hover:bg-neutral-850"
-              >
-                📈 통계
-              </Link>
-              <button
-                onClick={handleLogout}
-                className="rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-neutral-600 hover:bg-neutral-50 hover:text-red-500 transition-colors dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-450 dark:hover:bg-neutral-850"
-              >
-                로그아웃
-              </button>
+          {user && (
+            <div className="flex items-center gap-3 text-base">
+              <span className="font-black text-pink-400 mr-1">{profile?.displayName || user.displayName || "홍길동"}님💅</span>
+              <Link href="/mypage" className="rounded-xl border-2 border-pink-500 bg-white px-3 py-1.5 text-sm font-black text-pink-600 hover:bg-pink-50 transition-all">관리</Link>
+              <Link href="/stats" className="rounded-xl border-2 border-yellow-400 bg-white px-3 py-1.5 text-sm font-black text-yellow-600 hover:bg-yellow-50 transition-all">📈통계</Link>
+              <button onClick={handleLogout} className="text-sm font-black text-neutral-400 hover:text-red-500 transition-colors">로그아웃</button>
             </div>
-          ) : (
-            <button
-              onClick={handleGoogleLogin}
-              className="flex items-center gap-2 rounded-lg bg-neutral-900 px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-neutral-800 transition-colors active:scale-[0.98] dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-100"
-            >
-              <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-                <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-                <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#FBBC05"/>
-                <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335"/>
-              </svg>
-              Google 로그인
-            </button>
           )}
         </div>
       </header>
 
-      {/* 🧑‍💻 프로필 헤더 영역 */}
-      <div className="flex flex-col items-center text-center mb-8 max-w-md w-full">
-        <div className="relative">
-          <div className="flex h-20 w-20 items-center justify-center rounded-full bg-white border border-neutral-200 text-3xl shadow-sm dark:bg-neutral-800 dark:border-neutral-700">
-            🧑‍💻
+      {/* 🧑‍💻 프로필 영역 */}
+      <div className="flex flex-col items-center text-center mb-12 max-w-md w-full animate-fadeIn">
+        <div className="relative group">
+          <div className="flex h-28 w-28 items-center justify-center rounded-[2.5rem] bg-white border-4 border-pink-500 text-5xl shadow-[10px_10px_0px_0px_rgba(252,211,77,1)] transition-transform group-hover:scale-110 group-hover:rotate-6">
+            {profile?.displayName ? profile.displayName.charAt(0) : "👱‍♀️"}
           </div>
-          {/* 초록색 Pulse 온라인 상태 배지 */}
-          <span className="absolute bottom-0 right-0 flex h-4 w-4">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-4 w-4 bg-green-500 border-2 border-white dark:border-neutral-950"></span>
+          <span className="absolute -bottom-2 -right-2 flex h-8 w-8">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-pink-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-8 w-8 bg-pink-500 border-4 border-white text-xs items-center justify-center font-bold">✨</span>
           </span>
         </div>
 
-        <h1 className="mt-4 text-2xl font-bold tracking-tight text-neutral-800 dark:text-neutral-50 flex items-center justify-center gap-2">
-          {profile?.displayName || (user ? (user.displayName || "홍길동") : "이림_개발자")}
-          {profile?.username && (
-            <span className="px-2 py-0.5 rounded-full bg-purple-50 text-[10px] font-bold text-purple-600 border border-purple-100 dark:bg-purple-950/30 dark:text-purple-400 dark:border-purple-900/50">
-              @{profile.username}
-            </span>
-          )}
+        <h1 className="mt-8 text-6xl font-[var(--font-bagel)] tracking-tighter text-neutral-900 italic">
+          <span className="text-pink-500">{profile?.displayName || (user ? (user.displayName || "홍길동") : "마이링크_개발자")}</span>
+          {profile?.username && <span className="ml-2 text-3xl text-yellow-500 not-italic">@{profile.username}</span>}
         </h1>
-        <p className="mt-1.5 text-sm text-neutral-500 dark:text-neutral-400 max-w-[280px] break-words">
-          {profile?.bio || (user ? "아직 소개글이 없습니다." : "React와 TypeScript를 좋아하는 프론트엔드 신입 개발자입니다.")}
+        <p className="mt-4 text-3xl font-bold text-pink-400 max-w-[400px] break-words leading-tight">
+          {profile?.bio || "나만의 마이링크를 완전 예쁘게 꾸며보는 중! 💅✨"}
         </p>
       </div>
 
-      {/* 📝 링크 추가 입력 폼 - 로그인 시에만 노출 */}
+      {/* 📝 링크 추가 폼 */}
       {user && (
-        <Card className="w-full max-w-md border border-neutral-200 bg-white/90 shadow-sm mb-8 dark:border-neutral-800 dark:bg-neutral-900/90">
-          <CardContent className="p-4">
-            <form onSubmit={handleAddLink} noValidate className="flex flex-col gap-3.5">
-              <div className="flex flex-col sm:flex-row gap-3 w-full">
+        <Card className="relative w-full max-w-xl border-4 border-pink-500 bg-white shadow-[12px_12px_0px_0px_rgba(252,211,77,1)] mb-12 rounded-[2rem] overflow-hidden">
+          <div className="absolute top-0 left-0 w-32 h-32 opacity-80 pointer-events-none z-0" style={{ ...leopardPattern, clipPath: 'polygon(0 0, 100% 0, 0 100%)' }}></div>
+          <CardContent className="p-8 relative z-10">
+            <form onSubmit={handleAddLink} className="flex flex-col gap-5">
+              <div className="flex flex-col sm:flex-row gap-4">
                 <div className="flex-1">
-                  <label className="block text-xs font-semibold text-neutral-500 mb-1 dark:text-neutral-450">
-                    링크 제목
-                  </label>
+                  <label className="block text-xl font-black text-pink-500 mb-2 ml-1 uppercase tracking-wider">Title 🎀</label>
                   <input
-                    type="text"
-                    placeholder="예: GitHub"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-sm outline-none transition-all focus:border-purple-500 focus:bg-white dark:border-neutral-800 dark:bg-neutral-950 dark:focus:border-purple-500"
+                    type="text" placeholder="예: My Instagram" value={title} onChange={(e) => setTitle(e.target.value)}
+                    className="w-full rounded-2xl border-2 border-pink-100 bg-pink-50/30 px-5 py-3 text-xl font-bold outline-none focus:border-pink-500 focus:bg-white transition-all"
                   />
                 </div>
                 <div className="flex-[1.5]">
-                  <label className="block text-xs font-semibold text-neutral-500 mb-1 dark:text-neutral-450">
-                    연결 주소 (URL)
-                  </label>
+                  <label className="block text-xl font-black text-pink-500 mb-2 ml-1 uppercase tracking-wider">URL ✨</label>
                   <input
-                    type="text"
-                    placeholder="예: github.com"
-                    value={url}
-                    onChange={(e) => setUrl(e.target.value)}
-                    className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-sm outline-none transition-all focus:border-purple-500 focus:bg-white dark:border-neutral-800 dark:bg-neutral-950 dark:focus:border-purple-500"
+                    type="text" placeholder="예: instagram.com/gal" value={url} onChange={(e) => setUrl(e.target.value)}
+                    className="w-full rounded-2xl border-2 border-pink-100 bg-pink-50/30 px-5 py-3 text-xl font-bold outline-none focus:border-pink-500 focus:bg-white transition-all"
                   />
                 </div>
               </div>
-              
-              <button
-                type="submit"
-                className="w-full rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-purple-700 active:scale-[0.99] focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 dark:focus:ring-offset-neutral-950"
-              >
-                새 링크 추가하기
+              <button type="submit" className="w-full rounded-2xl bg-pink-500 py-4 text-2xl font-[var(--font-bagel)] text-white shadow-md hover:bg-pink-600 active:scale-[0.98] transition-all">
+                새 링크 추가하기 💅✨
               </button>
             </form>
           </CardContent>
         </Card>
       )}
 
-      {/* 🔗 링크 카드 리스트 (실시간 Firestore 연동 & 로그인 시에만 수정/삭제 버튼 노출) */}
-      <div className="flex w-full max-w-md flex-col gap-4">
+      {/* 🔗 링크 리스트 */}
+      <div className="flex w-full max-w-xl flex-col gap-6 mb-20">
         {links.map((link, index) => {
           const isEditing = editingId === link.id;
           const domain = getDomain(link.url);
-          const faviconUrl = domain 
-            ? `https://www.google.com/s2/favicons?domain=${domain}&sz=64` 
-            : null;
+          const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=64` : null;
 
           if (isEditing && user) {
             return (
-              <div
-                key={`${link.id}-${index}`}
-                className="w-full"
-              >
-                <Card className="overflow-hidden border border-purple-500 bg-white shadow-md dark:border-purple-500 dark:bg-neutral-900">
-                  <CardContent className="flex flex-col gap-3.5 p-4 animate-fadeIn">
-                    {/* 입력창 레이아웃 */}
-                    <div className="flex flex-col sm:flex-row gap-3 w-full">
-                      <div className="flex-1">
-                        <label className="block text-xs font-semibold text-neutral-500 mb-1 dark:text-neutral-450">
-                          링크 제목
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="예: GitHub"
-                          value={editTitle}
-                          onChange={(e) => setEditTitle(e.target.value)}
-                          className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-sm outline-none transition-all focus:border-purple-500 focus:bg-white dark:border-neutral-800 dark:bg-neutral-950 dark:focus:border-purple-500"
-                        />
-                      </div>
-                      <div className="flex-[1.5]">
-                        <label className="block text-xs font-semibold text-neutral-500 mb-1 dark:text-neutral-450">
-                          연결 주소 (URL)
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="예: github.com"
-                          value={editUrl}
-                          onChange={(e) => setEditUrl(e.target.value)}
-                          className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-sm outline-none transition-all focus:border-purple-500 focus:bg-white dark:border-neutral-800 dark:bg-neutral-950 dark:focus:border-purple-500"
-                        />
-                      </div>
-                    </div>
-                    
-                    {/* 저장 / 취소 버튼 */}
-                    <div className="flex justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={handleCancelEdit}
-                        className="rounded-lg border border-neutral-200 px-3.5 py-1.5 text-xs font-semibold text-neutral-600 hover:bg-neutral-50 transition-colors dark:border-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-850"
-                      >
-                        취소
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => handleSaveEdit(e, link.id)}
-                        className="rounded-lg bg-purple-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-purple-700 transition-colors active:scale-[0.98]"
-                      >
-                        저장
-                      </button>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
+              <Card key={link.id} className="relative border-4 border-yellow-400 bg-white shadow-lg rounded-[2rem] overflow-hidden animate-in zoom-in-95 duration-200">
+                <div className="absolute top-0 right-0 w-20 h-20 opacity-80 pointer-events-none z-0" style={{ ...leopardPattern, clipPath: 'polygon(100% 0, 100% 100%, 0 0)' }}></div>
+                <CardContent className="p-6 flex flex-col gap-4 relative z-10">
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <input type="text" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} className="flex-1 rounded-xl border-2 border-yellow-100 px-4 py-2 text-lg font-bold outline-none focus:border-yellow-400"/>
+                    <input type="text" value={editUrl} onChange={(e) => setEditUrl(e.target.value)} className="flex-[1.5] rounded-xl border-2 border-yellow-100 px-4 py-2 text-lg font-bold outline-none focus:border-yellow-400"/>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button onClick={() => setEditingId(null)} className="px-4 py-2 text-base font-black text-neutral-400">취소</button>
+                    <button onClick={async (e) => {
+                       e.preventDefault();
+                       const trimmedTitle = editTitle.trim(); const trimmedUrl = editUrl.trim();
+                       if (!trimmedTitle || !trimmedUrl) return;
+                       const formattedUrl = trimmedUrl.startsWith("http") ? trimmedUrl : `https://${trimmedUrl}`;
+                       const linkRef = doc(db, "users", user.uid, "links", link.id);
+                       await updateDoc(linkRef, { title: trimmedTitle, url: formattedUrl, updatedAt: serverTimestamp() });
+                       setEditingId(null);
+                    }} className="rounded-xl bg-yellow-400 px-6 py-2 text-base font-black text-yellow-800 shadow-sm">저장 ✨</button>
+                  </div>
+                </CardContent>
+              </Card>
             );
           }
 
           return (
-            <a
-              key={`${link.id}-${index}`}
-              href={link.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => handleLinkClick(e, link.id)}
-              className="group block transition-transform duration-200 hover:-translate-y-0.5 active:translate-y-0"
+            <a key={link.id} href={link.url} target="_blank" rel="noopener noreferrer" onClick={(e) => handleLinkClick(e, link.id)}
+               className="group block transition-transform duration-200 hover:-translate-y-1 hover:rotate-1 active:translate-y-0 active:rotate-0"
             >
-              <Card className="overflow-hidden border border-neutral-200/80 bg-white/95 shadow-sm transition-all duration-300 hover:border-neutral-300 hover:bg-white hover:shadow-md dark:border-neutral-800 dark:bg-neutral-900/95 dark:hover:border-neutral-700 dark:hover:bg-neutral-900">
-                <CardContent className="flex items-center gap-4 p-4">
-                  {/* 구글 파비콘 */}
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-neutral-50 border border-neutral-100 overflow-hidden dark:bg-neutral-850 dark:border-neutral-800">
-                    {faviconUrl ? (
-                      <img 
-                        src={faviconUrl} 
-                        alt={`${link.title} 로고`}
-                        className="h-5 w-5 object-contain"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23888888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E";
-                        }}
-                      />
-                    ) : (
-                      "🔗"
-                    )}
+              <Card className="overflow-hidden border-[3px] border-pink-100 bg-white/90 shadow-sm hover:border-pink-500 hover:shadow-[8px_8px_0px_0px_rgba(236,72,153,0.1)] rounded-[2.5rem] transition-all duration-300">
+                <CardContent className="flex items-center gap-5 p-6">
+                  <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-[1.5rem] bg-pink-50 border-2 border-pink-100 overflow-hidden group-hover:border-pink-500 transition-colors">
+                    {faviconUrl ? <img src={faviconUrl} alt="logo" className="h-8 w-8 object-contain"/> : <span className="text-3xl">🔗</span>}
                   </div>
-                  
-                  {/* 정보 */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <h2 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100 group-hover:text-black dark:group-hover:text-white">
-                        {link.title}
-                      </h2>
-                      {user && !(["1", "2", "3", "4", "5"].includes(link.id) || link.id.length === 1) && (
-                        <span className="inline-flex items-center gap-0.5 rounded-full bg-purple-50 px-1.5 py-0.5 text-[10px] font-medium text-purple-600 border border-purple-100/50 dark:bg-purple-950/30 dark:text-purple-400 dark:border-purple-900/30">
-                          🖱️ {link.clickCount || 0}
-                        </span>
+                      <h2 className="text-2xl font-black text-neutral-800 group-hover:text-pink-600 transition-colors">{link.title}</h2>
+                      {user && !(["1","2","3","4","5"].includes(link.id) || link.id.length === 1) && (
+                        <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-black text-yellow-700 border border-yellow-200">🖱️ {link.clickCount || 0}</span>
                       )}
                     </div>
-                    <p className="text-xs text-neutral-400 truncate dark:text-neutral-500">
-                      {link.url}
-                    </p>
+                    <p className="text-sm font-bold text-neutral-400 truncate mt-0.5">{link.url}</p>
                   </div>
-                  
-                  {/* 우측 아이콘 세트 (Chevron + 로그인 시에만 수정/삭제 버튼 노출) */}
-                  <div className="flex items-center gap-1">
-                    {/* 우측 이동 Chevron */}
-                    <div className="text-neutral-400 transition-transform duration-300 group-hover:translate-x-0.5 dark:text-neutral-600 mr-1.5">
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        className="h-4 w-4"
-                      >
-                        <polyline points="9 18 15 12 9 6" />
-                      </svg>
-                    </div>
-
-                    {user && (
-                      <>
-                        {/* 수정 연필 버튼 (이벤트 버블링 차단 완벽 적용) */}
-                        <button
-                          type="button"
-                          onClick={(e) => handleStartEdit(e, link)}
-                          className="rounded-lg p-2 text-neutral-400 hover:bg-neutral-100 hover:text-purple-600 transition-colors focus:outline-none dark:hover:bg-neutral-800"
-                          title="링크 수정"
-                        >
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            width="16"
-                            height="16"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            className="h-4 w-4"
-                          >
-                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                            <path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                          </svg>
-                        </button>
-
-                        {/* 쓰레기통 삭제 버튼 (이벤트 버블링 차단 완벽 적용) */}
-                        <button
-                          type="button"
-                          onClick={(e) => handleOpenDeleteModal(e, link)}
-                          className="rounded-lg p-2 text-neutral-400 hover:bg-neutral-100 hover:text-red-500 transition-colors focus:outline-none dark:hover:bg-neutral-800"
-                          title="링크 삭제"
-                        >
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            width="16"
-                            height="16"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            className="h-4 w-4"
-                          >
-                            <path d="M3 6h18" />
-                            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                          </svg>
-                        </button>
-                      </>
-                    )}
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); setEditingId(link.id); setEditTitle(link.title); setEditUrl(link.url); }} className="p-2 text-2xl">✏️</button>
+                    <button onClick={(e) => handleOpenDeleteModal(e, link)} className="p-2 text-2xl">🗑️</button>
                   </div>
                 </CardContent>
               </Card>
@@ -670,55 +403,24 @@ export default function Page() {
           );
         })}
       </div>
-      
-      {/* 🗑️ 삭제 확인 모달 */}
+
+      {/* 🗑️ 삭제 모달 */}
       {isDeleteModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl border border-neutral-100 dark:bg-neutral-900 dark:border-neutral-800 animate-in zoom-in-95 duration-200">
-            <div className="flex flex-col items-center text-center gap-3">
-              {/* ⚠️ 경고 아이콘 */}
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-50 text-red-500 text-2xl dark:bg-red-950/30 dark:text-red-400">
-                ⚠️
-              </div>
-              <h3 className="text-lg font-bold text-neutral-800 dark:text-neutral-100">
-                정말로 이 링크를 삭제하시겠습니까?
-              </h3>
-              <div className="space-y-1.5 mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-                <p>
-                  <span className="font-semibold text-neutral-750 dark:text-neutral-250">
-                    &ldquo;{linkToDelete?.title}&rdquo;
-                  </span>{" "}
-                  링크가 삭제됩니다.
-                </p>
-                <p className="text-xs text-red-500 font-semibold dark:text-red-400 flex items-center justify-center gap-1">
-                  ⚠️ 이 작업은 되돌릴 수 없습니다
-                </p>
-              </div>
-            </div>
-            
-            <div className="flex w-full gap-2.5 mt-6">
-              <button
-                type="button"
-                onClick={handleCloseDeleteModal}
-                className="flex-1 rounded-xl border border-neutral-200 bg-white py-2.5 text-sm font-semibold text-neutral-600 shadow-sm transition-all hover:bg-neutral-50 active:scale-[0.98] dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-350 dark:hover:bg-neutral-850"
-              >
-                취소
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmDelete}
-                className="flex-1 rounded-xl bg-red-500 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-red-600 active:scale-[0.98]"
-              >
-                삭제하기
-              </button>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="w-full max-w-sm rounded-[3rem] bg-white p-10 shadow-2xl border-[6px] border-pink-500 text-center animate-in zoom-in-95 duration-200">
+            <span className="text-7xl mb-6 block animate-bounce">⚠️</span>
+            <h3 className="text-3xl font-[var(--font-bagel)] text-neutral-900 mb-4 tracking-tighter italic underline decoration-yellow-400 underline-offset-4">진짜 삭제할거야?</h3>
+            <p className="text-xl font-bold text-pink-500 mb-8 leading-relaxed">이 링크를 지우면 다시 복구할 수 없어! <br/>완전 신중하게 결정해 💅✨</p>
+            <div className="flex gap-4">
+              <button onClick={() => setIsDeleteModalOpen(false)} className="flex-1 py-4 text-xl font-black text-neutral-400">취소</button>
+              <button onClick={handleConfirmDelete} className="flex-1 rounded-2xl bg-red-500 py-4 text-xl font-black text-white shadow-md hover:bg-red-600 transition-all font-[var(--font-bagel)]">지우기 🔥</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* 심플 푸터 */}
-      <footer className="mt-auto pt-16 text-center text-xs text-neutral-400 dark:text-neutral-600">
-        © 2026 MyLink. All rights reserved.
+      <footer className="mt-auto pt-20 pb-10 text-center">
+        <p className="text-xl text-pink-400 font-[var(--font-bagel)] italic tracking-tighter">© 2026 MyLink. Stay Kawaii! 🎀✨💅</p>
       </footer>
     </div>
   )
