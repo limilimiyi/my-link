@@ -141,13 +141,18 @@ export default function SharedProfilePage() {
       <div className="flex min-h-screen flex-col items-center justify-center bg-[#F8F9FA] px-4 dark:bg-neutral-950">
         <Card className="w-full max-w-sm border border-neutral-200 bg-white/90 p-6 shadow-md dark:border-neutral-800 dark:bg-neutral-900/90 text-center animate-fadeIn">
           <CardContent className="p-0 flex flex-col items-center gap-4">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-red-50 text-red-500 text-3xl dark:bg-red-950/20 dark:text-red-400">
-              🔍
+            <div className="flex flex-col items-center">
+              <h1 className="text-6xl font-black tracking-widest text-red-500/95 dark:text-red-450/95 select-none drop-shadow-xs">
+                404
+              </h1>
+              <span className="mt-1.5 px-2.5 py-0.5 rounded-full bg-red-50 text-[10px] font-bold text-red-500 border border-red-100 dark:bg-red-950/30 dark:text-red-400 dark:border-red-900/50">
+                USER NOT FOUND
+              </span>
             </div>
-            <h2 className="text-xl font-bold text-neutral-800 dark:text-neutral-100">
+            <h2 className="text-lg font-bold text-neutral-800 dark:text-neutral-100 mt-2">
               사용자를 찾을 수 없습니다.
             </h2>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed px-2">
               입력하신 사용자 이름(<span className="font-semibold text-purple-600">@{username}</span>)의 프로필 주소는 존재하지 않거나 탈퇴/변경되었을 수 있습니다.
             </p>
             <div className="w-full border-t border-neutral-100 dark:border-neutral-800 pt-4 mt-2">
