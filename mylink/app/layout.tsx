@@ -33,6 +33,34 @@ const fontMono = Geist_Mono({
   variable: "--font-mono",
 })
 
+import { Metadata } from "next"
+
+export const metadata: Metadata = {
+  title: "MyLink | 🎀 세상에서 제일 귀엽게 나를 표현해봐! 💅✨",
+  description: "30분 만에 끝내는 초강력 퍼스널 브랜딩! 나만의 링크 페이지를 갸루 감성으로 꾸며보세요. 💖🐆✨",
+  openGraph: {
+    title: "MyLink | 🎀 세상에서 제일 귀엽게 나를 표현해봐! 💅✨",
+    description: "30분 만에 끝내는 초강력 퍼스널 브랜딩! 나만의 링크 페이지를 갸루 감성으로 꾸며보세요. 💖🐆✨",
+    type: "website",
+    locale: "ko_KR",
+    url: "https://my-link-liard.vercel.app",
+    images: [
+      {
+        url: "https://my-link-liard.vercel.app/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: "MyLink 갸루 테마",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "MyLink | 🎀 세상에서 제일 귀엽게 나를 표현해봐! 💅✨",
+    description: "나만의 링크 페이지를 갸루 감성으로 꾸며보세요. 💖🐆✨",
+    images: ["https://my-link-liard.vercel.app/og-image.png"],
+  },
+}
+
 export default function RootLayout({
   children,
 }: Readonly<{
