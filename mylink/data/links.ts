@@ -3,6 +3,7 @@ export interface LinkItem {
   title: string;
   url: string;
   icon?: string;
+  clickCount?: number;
 }
 
 export const dummyLinks: LinkItem[] = [

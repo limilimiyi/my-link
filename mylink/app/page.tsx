@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { db, auth } from "@/lib/firebase"
-import { collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, doc, deleteDoc, updateDoc, setDoc } from "firebase/firestore"
+import { collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, doc, deleteDoc, updateDoc, setDoc, increment } from "firebase/firestore"
 import { GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from "firebase/auth"
 import { dummyLinks, LinkItem } from "@/data/links"
 import Link from "next/link"
@@ -82,11 +82,14 @@ export default function Page() {
   useEffect(() => {
     if (!db) return;
 
-    // 로그인 상태면 유저 고유 uid 경로 조회, 로그아웃 상태면 anonymous 경로 조회 (조회=누구나)
-    const userPath = user ? user.uid : "anonymous"
+    // 로그인 상태일 때만 유저 고유 uid 경로 조회
+    if (!user) {
+      setLinks(dummyLinks.filter(l => !deletedDummyIds.includes(l.id)))
+      return
+    }
 
     const q = query(
-      collection(db, "users", userPath, "links"),
+      collection(db, "users", user.uid, "links"),
       orderBy("createdAt", "desc")
     )
 
@@ -100,7 +103,8 @@ export default function Page() {
             id: doc.id,
             title: data.title || "",
             url: data.url || "",
-            icon: "link"
+            icon: "link",
+            clickCount: data.clickCount || 0
           })
         })
 
@@ -156,6 +160,11 @@ export default function Page() {
   const handleAddLink = async (e: React.FormEvent) => {
     e.preventDefault()
 
+    if (!user) {
+      alert("로그인 후 이용 가능합니다.")
+      return
+    }
+
     // 1. 제목/주소 가져오기
     const trimmedTitle = title.trim()
     const trimmedUrl = url.trim()
@@ -179,14 +188,16 @@ export default function Page() {
 
     // 3. Firestore에 저장
     const formattedUrl = trimmedUrl.startsWith("http") ? trimmedUrl : `https://${trimmedUrl}`
-    const userPath = user ? user.uid : "anonymous"
     
     try {
-      await addDoc(collection(db, "users", userPath, "links"), {
+      await addDoc(collection(db, "users", user.uid, "links"), {
         title: trimmedTitle,
         url: formattedUrl,
+        clickCount: 0,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
+      })
+
       })
 
       // 입력 필드 초기화
@@ -202,6 +213,12 @@ export default function Page() {
   const handleOpenDeleteModal = (e: React.MouseEvent, link: LinkItem) => {
     e.preventDefault()
     e.stopPropagation()
+
+    if (!user) {
+      alert("로그인 후 삭제 가능합니다.")
+      return
+    }
+
     setLinkToDelete(link)
     setIsDeleteModalOpen(true)
   }
@@ -214,9 +231,7 @@ export default function Page() {
 
   // 실시간 링크 삭제 기능 (Firestore deleteDoc)
   const handleConfirmDelete = async () => {
-    if (!linkToDelete) return
-
-    const userPath = user ? user.uid : "anonymous"
+    if (!linkToDelete || !user) return
 
     try {
       // 로컬 더미 데이터일 경우 삭제 리스트에 추가하여 UI 즉시 갱신
@@ -224,7 +239,7 @@ export default function Page() {
         setDeletedDummyIds(prev => [...prev, linkToDelete.id])
       }
 
-      await deleteDoc(doc(db, "users", userPath, "links", linkToDelete.id))
+      await deleteDoc(doc(db, "users", user.uid, "links", linkToDelete.id))
       handleCloseDeleteModal()
     } catch (error) {
       console.error("Firestore 삭제 에러:", error)
@@ -236,6 +251,12 @@ export default function Page() {
   const handleStartEdit = (e: React.MouseEvent, link: LinkItem) => {
     e.preventDefault()
     e.stopPropagation()
+
+    if (!user) {
+      alert("로그인 후 수정 가능합니다.")
+      return
+    }
+
     setEditingId(link.id)
     setEditTitle(link.title)
     setEditUrl(link.url)
@@ -254,6 +275,8 @@ export default function Page() {
   const handleSaveEdit = async (e: React.MouseEvent, id: string) => {
     e.preventDefault()
     e.stopPropagation()
+
+    if (!user) return
 
     const trimmedTitle = editTitle.trim()
     const trimmedUrl = editUrl.trim()
@@ -312,6 +335,30 @@ export default function Page() {
     }
   }
 
+  const handleLinkClick = async (e: React.MouseEvent<HTMLAnchorElement>, linkId: string) => {
+    // 3. 에러 처리 : 로그인 확인
+    if (!user || !auth || !auth.currentUser) {
+      console.error("클릭 카운트 저장 실패: 로그인 상태가 아닙니다.")
+      return
+    }
+
+    // 더미 데이터 클릭 방지
+    const isDummy = linkId.length === 1 || ["1", "2", "3", "4", "5"].includes(linkId)
+    if (isDummy) {
+      console.warn("더미 링크는 클릭 카운트를 기록하지 않습니다.")
+      return
+    }
+
+    try {
+      const linkRef = doc(db, "users", user.uid, "links", linkId)
+      await updateDoc(linkRef, {
+        clickCount: increment(1)
+      })
+    } catch (error) {
+      console.error("클릭 카운트 저장 중 에러 발생:", error)
+    }
+  }
+
   return (
     <div className="flex min-h-screen flex-col items-center justify-start bg-[#F8F9FA] px-4 py-8 sm:py-12 dark:bg-neutral-950">
       
@@ -332,6 +379,12 @@ export default function Page() {
                 className="rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-neutral-600 hover:bg-neutral-50 transition-colors dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-350 dark:hover:bg-neutral-850"
               >
                 마이페이지
+              </Link>
+              <Link
+                href="/stats"
+                className="rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-neutral-600 hover:bg-neutral-50 transition-colors dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-350 dark:hover:bg-neutral-850"
+              >
+                📈 통계
               </Link>
               <button
                 onClick={handleLogout}
@@ -383,48 +436,50 @@ export default function Page() {
         </p>
       </div>
 
-      {/* 📝 링크 추가 입력 폼 */}
-      <Card className="w-full max-w-md border border-neutral-200 bg-white/90 shadow-sm mb-8 dark:border-neutral-800 dark:bg-neutral-900/90">
-        <CardContent className="p-4">
-          <form onSubmit={handleAddLink} noValidate className="flex flex-col gap-3.5">
-            <div className="flex flex-col sm:flex-row gap-3 w-full">
-              <div className="flex-1">
-                <label className="block text-xs font-semibold text-neutral-500 mb-1 dark:text-neutral-450">
-                  링크 제목
-                </label>
-                <input
-                  type="text"
-                  placeholder="예: GitHub"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-sm outline-none transition-all focus:border-purple-500 focus:bg-white dark:border-neutral-800 dark:bg-neutral-950 dark:focus:border-purple-500"
-                />
+      {/* 📝 링크 추가 입력 폼 - 로그인 시에만 노출 */}
+      {user && (
+        <Card className="w-full max-w-md border border-neutral-200 bg-white/90 shadow-sm mb-8 dark:border-neutral-800 dark:bg-neutral-900/90">
+          <CardContent className="p-4">
+            <form onSubmit={handleAddLink} noValidate className="flex flex-col gap-3.5">
+              <div className="flex flex-col sm:flex-row gap-3 w-full">
+                <div className="flex-1">
+                  <label className="block text-xs font-semibold text-neutral-500 mb-1 dark:text-neutral-450">
+                    링크 제목
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="예: GitHub"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-sm outline-none transition-all focus:border-purple-500 focus:bg-white dark:border-neutral-800 dark:bg-neutral-950 dark:focus:border-purple-500"
+                  />
+                </div>
+                <div className="flex-[1.5]">
+                  <label className="block text-xs font-semibold text-neutral-500 mb-1 dark:text-neutral-450">
+                    연결 주소 (URL)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="예: github.com"
+                    value={url}
+                    onChange={(e) => setUrl(e.target.value)}
+                    className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-sm outline-none transition-all focus:border-purple-500 focus:bg-white dark:border-neutral-800 dark:bg-neutral-950 dark:focus:border-purple-500"
+                  />
+                </div>
               </div>
-              <div className="flex-[1.5]">
-                <label className="block text-xs font-semibold text-neutral-500 mb-1 dark:text-neutral-450">
-                  연결 주소 (URL)
-                </label>
-                <input
-                  type="text"
-                  placeholder="예: github.com"
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-sm outline-none transition-all focus:border-purple-500 focus:bg-white dark:border-neutral-800 dark:bg-neutral-950 dark:focus:border-purple-500"
-                />
-              </div>
-            </div>
-            
-            <button
-              type="submit"
-              className="w-full rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-purple-700 active:scale-[0.99] focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 dark:focus:ring-offset-neutral-950"
-            >
-              새 링크 추가하기
-            </button>
-          </form>
-        </CardContent>
-      </Card>
+              
+              <button
+                type="submit"
+                className="w-full rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-purple-700 active:scale-[0.99] focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 dark:focus:ring-offset-neutral-950"
+              >
+                새 링크 추가하기
+              </button>
+            </form>
+          </CardContent>
+        </Card>
+      )}
 
-      {/* 🔗 링크 카드 리스트 (실시간 Firestore 연동 & 우측 삭제 버튼 탑재) */}
+      {/* 🔗 링크 카드 리스트 (실시간 Firestore 연동 & 로그인 시에만 수정/삭제 버튼 노출) */}
       <div className="flex w-full max-w-md flex-col gap-4">
         {links.map((link, index) => {
           const isEditing = editingId === link.id;
@@ -433,7 +488,7 @@ export default function Page() {
             ? `https://www.google.com/s2/favicons?domain=${domain}&sz=64` 
             : null;
 
-          if (isEditing) {
+          if (isEditing && user) {
             return (
               <div
                 key={`${link.id}-${index}`}
@@ -498,6 +553,7 @@ export default function Page() {
               href={link.url}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={(e) => handleLinkClick(e, link.id)}
               className="group block transition-transform duration-200 hover:-translate-y-0.5 active:translate-y-0"
             >
               <Card className="overflow-hidden border border-neutral-200/80 bg-white/95 shadow-sm transition-all duration-300 hover:border-neutral-300 hover:bg-white hover:shadow-md dark:border-neutral-800 dark:bg-neutral-900/95 dark:hover:border-neutral-700 dark:hover:bg-neutral-900">
@@ -520,15 +576,22 @@ export default function Page() {
                   
                   {/* 정보 */}
                   <div className="flex-1 min-w-0">
-                    <h2 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100 group-hover:text-black dark:group-hover:text-white">
-                      {link.title}
-                    </h2>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100 group-hover:text-black dark:group-hover:text-white">
+                        {link.title}
+                      </h2>
+                      {user && !(["1", "2", "3", "4", "5"].includes(link.id) || link.id.length === 1) && (
+                        <span className="inline-flex items-center gap-0.5 rounded-full bg-purple-50 px-1.5 py-0.5 text-[10px] font-medium text-purple-600 border border-purple-100/50 dark:bg-purple-950/30 dark:text-purple-400 dark:border-purple-900/30">
+                          🖱️ {link.clickCount || 0}
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-neutral-400 truncate dark:text-neutral-500">
                       {link.url}
                     </p>
                   </div>
                   
-                  {/* 우측 아이콘 세트 (Chevron + 수정/삭제 버튼) */}
+                  {/* 우측 아이콘 세트 (Chevron + 로그인 시에만 수정/삭제 버튼 노출) */}
                   <div className="flex items-center gap-1">
                     {/* 우측 이동 Chevron */}
                     <div className="text-neutral-400 transition-transform duration-300 group-hover:translate-x-0.5 dark:text-neutral-600 mr-1.5">
@@ -548,54 +611,58 @@ export default function Page() {
                       </svg>
                     </div>
 
-                    {/* 수정 연필 버튼 (이벤트 버블링 차단 완벽 적용) */}
-                    <button
-                      type="button"
-                      onClick={(e) => handleStartEdit(e, link)}
-                      className="rounded-lg p-2 text-neutral-400 hover:bg-neutral-100 hover:text-purple-600 transition-colors focus:outline-none dark:hover:bg-neutral-800"
-                      title="링크 수정"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        className="h-4 w-4"
-                      >
-                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                        <path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                      </svg>
-                    </button>
+                    {user && (
+                      <>
+                        {/* 수정 연필 버튼 (이벤트 버블링 차단 완벽 적용) */}
+                        <button
+                          type="button"
+                          onClick={(e) => handleStartEdit(e, link)}
+                          className="rounded-lg p-2 text-neutral-400 hover:bg-neutral-100 hover:text-purple-600 transition-colors focus:outline-none dark:hover:bg-neutral-800"
+                          title="링크 수정"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className="h-4 w-4"
+                          >
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                            <path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                          </svg>
+                        </button>
 
-                    {/* 쓰레기통 삭제 버튼 (이벤트 버블링 차단 완벽 적용) */}
-                    <button
-                      type="button"
-                      onClick={(e) => handleOpenDeleteModal(e, link)}
-                      className="rounded-lg p-2 text-neutral-400 hover:bg-neutral-100 hover:text-red-500 transition-colors focus:outline-none dark:hover:bg-neutral-800"
-                      title="링크 삭제"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        className="h-4 w-4"
-                      >
-                        <path d="M3 6h18" />
-                        <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                        <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                      </svg>
-                    </button>
+                        {/* 쓰레기통 삭제 버튼 (이벤트 버블링 차단 완벽 적용) */}
+                        <button
+                          type="button"
+                          onClick={(e) => handleOpenDeleteModal(e, link)}
+                          className="rounded-lg p-2 text-neutral-400 hover:bg-neutral-100 hover:text-red-500 transition-colors focus:outline-none dark:hover:bg-neutral-800"
+                          title="링크 삭제"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className="h-4 w-4"
+                          >
+                            <path d="M3 6h18" />
+                            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                          </svg>
+                        </button>
+                      </>
+                    )}
                   </div>
                 </CardContent>
               </Card>

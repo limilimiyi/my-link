@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { LinkItem } from "@/data/links"
 import { db, auth } from "@/lib/firebase"
-import { collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, doc, deleteDoc, updateDoc, getDoc, setDoc } from "firebase/firestore"
+import { collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, doc, deleteDoc, updateDoc, getDoc, setDoc, increment } from "firebase/firestore"
 import { GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from "firebase/auth"
 import Link from "next/link"
 
@@ -113,12 +113,17 @@ export default function MyPage() {
 
   // 2. 로그인된 사용자 정보 기반으로 프로필 실시간 불러오기 + 자동 생성
   useEffect(() => {
-    if (!db) {
+    if (!db || !user) {
+      setProfile({ username: "", displayName: "", bio: "" })
+      setSavedUsername("")
+      setInputUsername("")
+      setInputDisplayName("")
+      setInputBio("")
       setProfileLoading(false)
       return
     }
 
-    const userId = user ? user.uid : "anonymous"
+    const userId = user.uid
     const profileRef = doc(db, "users", userId, "profile", "info")
 
     const unsubscribe = onSnapshot(profileRef, async (docSnap) => {
@@ -139,49 +144,38 @@ export default function MyPage() {
         setProfileLoading(false)
       } else {
         // 프로필 정보가 없는데 로그인 상태인 경우: 자동 생성 및 동기화
-        if (user) {
-          try {
-            setProfileLoading(true)
-            const email = user.email || ""
-            const uniqueUsername = await generateUniqueUsername(email, user.uid)
-            const defaultDisplayName = user.displayName || "홍길동"
-            
-            const newProfile = {
-              username: uniqueUsername,
-              displayName: defaultDisplayName,
-              bio: ""
-            }
-
-            // DB 저장 경로: users/{userId}/profile에 저장하기 위해
-            // doc(db, "users", userId)의 profile 필드와 하위 호환을 위한 profile/info, profile/profile 동시 저장
-            const infoRef = doc(db, "users", user.uid, "profile", "info")
-            const subdocRef = doc(db, "users", user.uid, "profile", "profile")
-            const userDocRef = doc(db, "users", user.uid)
-            const usernameRef = doc(db, "usernames", uniqueUsername)
-
-            await setDoc(infoRef, newProfile, { merge: true })
-            await setDoc(subdocRef, newProfile, { merge: true })
-            await setDoc(userDocRef, { profile: newProfile }, { merge: true })
-            await setDoc(usernameRef, { uid: user.uid })
-
-            setProfile(newProfile)
-            setSavedUsername(uniqueUsername)
-            setInputUsername(uniqueUsername)
-            setInputDisplayName(defaultDisplayName)
-            setInputBio("")
-          } catch (e) {
-            console.error("프로필 자동 생성 실패:", e)
-          } finally {
-            setProfileLoading(false)
+        try {
+          setProfileLoading(true)
+          const email = user.email || ""
+          const uniqueUsername = await generateUniqueUsername(email, user.uid)
+          const defaultDisplayName = user.displayName || "홍길동"
+          
+          const newProfile = {
+            username: uniqueUsername,
+            displayName: defaultDisplayName,
+            bio: ""
           }
-        } else {
-          // 비로그인 상태일 때는 빈값
-          const defaultProfile = { username: "", displayName: "", bio: "" }
-          setProfile(defaultProfile)
-          setSavedUsername("")
-          setInputUsername("")
-          setInputDisplayName("")
+
+          // DB 저장 경로: users/{userId}/profile에 저장하기 위해
+          // doc(db, "users", userId)의 profile 필드와 하위 호환을 위한 profile/info, profile/profile 동시 저장
+          const infoRef = doc(db, "users", user.uid, "profile", "info")
+          const subdocRef = doc(db, "users", user.uid, "profile", "profile")
+          const userDocRef = doc(db, "users", user.uid)
+          const usernameRef = doc(db, "usernames", uniqueUsername)
+
+          await setDoc(infoRef, newProfile, { merge: true })
+          await setDoc(subdocRef, newProfile, { merge: true })
+          await setDoc(userDocRef, { profile: newProfile }, { merge: true })
+          await setDoc(usernameRef, { uid: user.uid })
+
+          setProfile(newProfile)
+          setSavedUsername(uniqueUsername)
+          setInputUsername(uniqueUsername)
+          setInputDisplayName(defaultDisplayName)
           setInputBio("")
+        } catch (e) {
+          console.error("프로필 자동 생성 실패:", e)
+        } finally {
           setProfileLoading(false)
         }
       }
@@ -193,13 +187,15 @@ export default function MyPage() {
     return () => unsubscribe()
   }, [user])
 
-  // 3. Firestore에서 개인화(uid) 또는 비회원(anonymous) 링크 목록 실시간 불러오기
+  // 3. Firestore에서 개인화(uid) 링크 목록 실시간 불러오기
   useEffect(() => {
-    if (!db) return
+    if (!db || !user) {
+      setLinks([])
+      return
+    }
 
-    const userPath = user ? user.uid : "anonymous"
     const q = query(
-      collection(db, "users", userPath, "links"),
+      collection(db, "users", user.uid, "links"),
       orderBy("createdAt", "desc")
     )
 
@@ -211,7 +207,8 @@ export default function MyPage() {
           id: doc.id,
           title: data.title || "",
           url: data.url || "",
-          icon: "link"
+          icon: "link",
+          clickCount: data.clickCount || 0
         })
       })
       setLinks(fetchedLinks)
@@ -390,6 +387,11 @@ export default function MyPage() {
   const handleAddLink = async (e: React.FormEvent) => {
     e.preventDefault()
 
+    if (!user) {
+      alert("로그인이 필요한 서비스입니다.")
+      return
+    }
+
     const trimmedTitle = title.trim()
     const trimmedUrl = url.trim()
 
@@ -410,12 +412,12 @@ export default function MyPage() {
     }
 
     const formattedUrl = trimmedUrl.startsWith("http") ? trimmedUrl : `https://${trimmedUrl}`
-    const userPath = user ? user.uid : "anonymous"
     
     try {
-      await addDoc(collection(db, "users", userPath, "links"), {
+      await addDoc(collection(db, "users", user.uid, "links"), {
         title: trimmedTitle,
         url: formattedUrl,
+        clickCount: 0,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       })
@@ -432,6 +434,9 @@ export default function MyPage() {
   const handleOpenDeleteModal = (e: React.MouseEvent, link: LinkItem) => {
     e.preventDefault()
     e.stopPropagation()
+
+    if (!user) return
+
     setLinkToDelete(link)
     setIsDeleteModalOpen(true)
   }
@@ -442,12 +447,10 @@ export default function MyPage() {
   }
 
   const handleConfirmDelete = async () => {
-    if (!linkToDelete) return
-
-    const userPath = user ? user.uid : "anonymous"
+    if (!linkToDelete || !user) return
 
     try {
-      await deleteDoc(doc(db, "users", userPath, "links", linkToDelete.id))
+      await deleteDoc(doc(db, "users", user.uid, "links", linkToDelete.id))
       handleCloseDeleteModal()
     } catch (error) {
       console.error("Firestore 삭제 에러:", error)
@@ -459,6 +462,9 @@ export default function MyPage() {
   const handleStartEdit = (e: React.MouseEvent, link: LinkItem) => {
     e.preventDefault()
     e.stopPropagation()
+
+    if (!user) return
+
     setEditingId(link.id)
     setEditTitle(link.title)
     setEditUrl(link.url)
@@ -475,6 +481,8 @@ export default function MyPage() {
   const handleSaveEdit = async (e: React.MouseEvent, id: string) => {
     e.preventDefault()
     e.stopPropagation()
+
+    if (!user) return
 
     const trimmedTitle = editTitle.trim()
     const trimmedUrl = editUrl.trim()
@@ -496,10 +504,9 @@ export default function MyPage() {
     }
 
     const formattedUrl = trimmedUrl.startsWith("http") ? trimmedUrl : `https://${trimmedUrl}`
-    const userPath = user ? user.uid : "anonymous"
 
     try {
-      const linkRef = doc(db, "users", userPath, "links", id)
+      const linkRef = doc(db, "users", user.uid, "links", id)
       await updateDoc(linkRef, {
         title: trimmedTitle,
         url: formattedUrl,
@@ -515,6 +522,24 @@ export default function MyPage() {
     }
   }
 
+  const handleLinkClick = async (e: React.MouseEvent<HTMLAnchorElement>, linkId: string) => {
+    if (!user) return
+
+    if (!auth || !auth.currentUser) {
+      console.error("클릭 카운트 저장 실패: 로그인 상태가 아닙니다.")
+      return
+    }
+
+    try {
+      const linkRef = doc(db, "users", user.uid, "links", linkId)
+      await updateDoc(linkRef, {
+        clickCount: increment(1)
+      })
+    } catch (error) {
+      console.error("클릭 카운트 저장 중 에러 발생:", error)
+    }
+  }
+
   return (
     <div className="flex min-h-screen flex-col items-center justify-start bg-[#F8F9FA] px-4 py-8 sm:py-12 dark:bg-neutral-950">
       
@@ -527,9 +552,15 @@ export default function MyPage() {
         <div className="flex items-center gap-3">
           {user ? (
             <div className="flex items-center gap-2.5 animate-fadeIn">
-              <span className="text-xs font-semibold text-neutral-600 dark:text-neutral-350">
+              <span className="text-xs font-semibold text-neutral-600 dark:text-neutral-350 mr-1">
                 {profile.displayName || user.displayName || "홍길동"}님
               </span>
+              <Link
+                href="/stats"
+                className="rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-neutral-600 hover:bg-neutral-50 hover:text-purple-600 transition-colors dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-350 dark:hover:bg-neutral-850"
+              >
+                📈 통계
+              </Link>
               <button
                 onClick={handleLogout}
                 className="rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-neutral-600 hover:bg-neutral-50 hover:text-red-500 transition-colors dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-450 dark:hover:bg-neutral-850"
@@ -728,219 +759,229 @@ export default function MyPage() {
         </CardContent>
       </Card>
 
-      {/* 2. 중간 - 링크 추가 폼 */}
-      <Card className="w-full max-w-xl border border-neutral-200 bg-white shadow-xs mb-10 dark:border-neutral-800 dark:bg-neutral-900">
-        <CardContent className="p-6">
-          <form onSubmit={handleAddLink} noValidate className="flex flex-col gap-4">
-            <div className="flex flex-col sm:flex-row gap-3 w-full">
-              <div className="flex-1">
-                <label className="block text-xs font-semibold text-neutral-500 mb-1.5 dark:text-neutral-400">
-                  링크 제목
-                </label>
-                <input
-                  type="text"
-                  placeholder="예: 내 블로그"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3.5 py-2 text-sm outline-none transition-all focus:border-purple-500 focus:bg-white dark:border-neutral-800 dark:bg-neutral-950 dark:focus:border-purple-500"
-                />
-              </div>
-              <div className="flex-[2]">
-                <label className="block text-xs font-semibold text-neutral-500 mb-1.5 dark:text-neutral-400">
-                  연결 주소 (URL)
-                </label>
-                <input
-                  type="text"
-                  placeholder="예: https://velog.io/@limi"
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3.5 py-2 text-sm outline-none transition-all focus:border-purple-500 focus:bg-white dark:border-neutral-800 dark:bg-neutral-950 dark:focus:border-purple-500"
-                />
-              </div>
-            </div>
+      {/* 2. 중간 - 링크 추가 폼 - 로그인 시에만 노출 */}
+      {user && (
+        <>
+          <Card className="w-full max-w-xl border border-neutral-200 bg-white shadow-xs mb-10 dark:border-neutral-800 dark:bg-neutral-900">
+            <CardContent className="p-6">
+              <form onSubmit={handleAddLink} noValidate className="flex flex-col gap-4">
+                <div className="flex flex-col sm:flex-row gap-3 w-full">
+                  <div className="flex-1">
+                    <label className="block text-xs font-semibold text-neutral-500 mb-1.5 dark:text-neutral-400">
+                      링크 제목
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="예: 내 블로그"
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3.5 py-2 text-sm outline-none transition-all focus:border-purple-500 focus:bg-white dark:border-neutral-800 dark:bg-neutral-950 dark:focus:border-purple-500"
+                    />
+                  </div>
+                  <div className="flex-[2]">
+                    <label className="block text-xs font-semibold text-neutral-500 mb-1.5 dark:text-neutral-400">
+                      연결 주소 (URL)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="예: https://velog.io/@limi"
+                      value={url}
+                      onChange={(e) => setUrl(e.target.value)}
+                      className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3.5 py-2 text-sm outline-none transition-all focus:border-purple-500 focus:bg-white dark:border-neutral-800 dark:bg-neutral-950 dark:focus:border-purple-500"
+                    />
+                  </div>
+                </div>
+                
+                <button
+                  type="submit"
+                  className="w-full rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-purple-700 active:scale-[0.99] focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 dark:focus:ring-offset-neutral-950"
+                >
+                  새 링크 추가하기
+                </button>
+              </form>
+            </CardContent>
+          </Card>
+
+          {/* 3. 하단 - 링크 목록 */}
+          <div className="w-full max-w-xl flex flex-col gap-4">
+            <h2 className="text-sm font-bold text-neutral-700 dark:text-neutral-300 px-1 mb-1">
+              현재 링크 목록 ({links.length}개)
+            </h2>
             
-            <button
-              type="submit"
-              className="w-full rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-purple-700 active:scale-[0.99] focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 dark:focus:ring-offset-neutral-950"
-            >
-              새 링크 추가하기
-            </button>
-          </form>
-        </CardContent>
-      </Card>
+            {links.map((link, idx) => {
+              const isEditing = editingId === link.id;
+              const domain = getDomain(link.url);
+              const faviconUrl = domain 
+                ? `https://www.google.com/s2/favicons?domain=${domain}&sz=64` 
+                : null;
 
-      {/* 3. 하단 - 링크 목록 */}
-      <div className="w-full max-w-xl flex flex-col gap-4">
-        <h2 className="text-sm font-bold text-neutral-700 dark:text-neutral-300 px-1 mb-1">
-          현재 링크 목록 ({links.length}개)
-        </h2>
-        
-        {links.map((link, idx) => {
-          const isEditing = editingId === link.id;
-          const domain = getDomain(link.url);
-          const faviconUrl = domain 
-            ? `https://www.google.com/s2/favicons?domain=${domain}&sz=64` 
-            : null;
+              if (isEditing) {
+                return (
+                  <div key={`${link.id}-${idx}`} className="w-full">
+                    <Card className="overflow-hidden border border-purple-500 bg-white shadow-md dark:border-purple-500 dark:bg-neutral-900">
+                      <CardContent className="flex flex-col gap-3.5 p-4 animate-fadeIn">
+                        <div className="flex flex-col sm:flex-row gap-3 w-full">
+                          <div className="flex-1">
+                            <label className="block text-xs font-semibold text-neutral-500 mb-1 dark:text-neutral-400">
+                              링크 제목
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="예: 내 블로그"
+                              value={editTitle}
+                              onChange={(e) => setEditTitle(e.target.value)}
+                              className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3.5 py-2 text-sm outline-none transition-all focus:border-purple-500 focus:bg-white dark:border-neutral-800 dark:bg-neutral-950 dark:focus:border-purple-500"
+                            />
+                          </div>
+                          <div className="flex-[2]">
+                            <label className="block text-xs font-semibold text-neutral-500 mb-1 dark:text-neutral-400">
+                              연결 주소 (URL)
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="예: https://velog.io/@limi"
+                              value={editUrl}
+                              onChange={(e) => setEditUrl(e.target.value)}
+                              className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3.5 py-2 text-sm outline-none transition-all focus:border-purple-500 focus:bg-white dark:border-neutral-800 dark:bg-neutral-950 dark:focus:border-purple-500"
+                            />
+                          </div>
+                        </div>
+                        
+                        <div className="flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={handleCancelEdit}
+                            className="rounded-lg border border-neutral-200 px-3.5 py-1.5 text-xs font-semibold text-neutral-600 hover:bg-neutral-50 transition-colors dark:border-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-850"
+                          >
+                            취소
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => handleSaveEdit(e, link.id)}
+                            className="rounded-lg bg-purple-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-purple-700 transition-colors active:scale-[0.98]"
+                          >
+                            저장
+                          </button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+                );
+              }
 
-          if (isEditing) {
-            return (
-              <div key={`${link.id}-${idx}`} className="w-full">
-                <Card className="overflow-hidden border border-purple-500 bg-white shadow-md dark:border-purple-500 dark:bg-neutral-900">
-                  <CardContent className="flex flex-col gap-3.5 p-4 animate-fadeIn">
-                    <div className="flex flex-col sm:flex-row gap-3 w-full">
-                      <div className="flex-1">
-                        <label className="block text-xs font-semibold text-neutral-500 mb-1 dark:text-neutral-400">
-                          링크 제목
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="예: 내 블로그"
-                          value={editTitle}
-                          onChange={(e) => setEditTitle(e.target.value)}
-                          className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3.5 py-2 text-sm outline-none transition-all focus:border-purple-500 focus:bg-white dark:border-neutral-800 dark:bg-neutral-950 dark:focus:border-purple-500"
-                        />
+              return (
+                <a
+                  key={`${link.id}-${idx}`}
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => handleLinkClick(e, link.id)}
+                  className="group block transition-transform duration-200 hover:-translate-y-0.5 active:translate-y-0"
+                >
+                  <Card className="overflow-hidden border border-neutral-200/80 bg-white/95 shadow-sm transition-all duration-300 hover:border-neutral-300 hover:bg-white hover:shadow-md dark:border-neutral-800 dark:bg-neutral-900/95 dark:hover:border-neutral-700 dark:hover:bg-neutral-900">
+                    <CardContent className="flex items-center gap-4 p-4">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-neutral-50 border border-neutral-100 overflow-hidden dark:bg-neutral-850 dark:border-neutral-800">
+                        {faviconUrl ? (
+                          <img 
+                            src={faviconUrl} 
+                            alt={`${link.title} 로고`}
+                            className="h-5 w-5 object-contain"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23888888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E";
+                            }}
+                          />
+                        ) : (
+                          "🔗"
+                        )}
                       </div>
-                      <div className="flex-[2]">
-                        <label className="block text-xs font-semibold text-neutral-500 mb-1 dark:text-neutral-400">
-                          연결 주소 (URL)
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="예: https://velog.io/@limi"
-                          value={editUrl}
-                          onChange={(e) => setEditUrl(e.target.value)}
-                          className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3.5 py-2 text-sm outline-none transition-all focus:border-purple-500 focus:bg-white dark:border-neutral-800 dark:bg-neutral-950 dark:focus:border-purple-500"
-                        />
+                      
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100 group-hover:text-black dark:group-hover:text-white">
+                            {link.title}
+                          </h3>
+                          <span className="inline-flex items-center gap-0.5 rounded-full bg-purple-50 px-1.5 py-0.5 text-[10px] font-medium text-purple-600 border border-purple-100/50 dark:bg-purple-950/30 dark:text-purple-400 dark:border-purple-900/30">
+                            🖱️ {link.clickCount || 0}
+                          </span>
+                        </div>
+                        <p className="text-xs text-neutral-400 truncate dark:text-neutral-500">
+                          {link.url}
+                        </p>
                       </div>
-                    </div>
-                    
-                    <div className="flex justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={handleCancelEdit}
-                        className="rounded-lg border border-neutral-200 px-3.5 py-1.5 text-xs font-semibold text-neutral-600 hover:bg-neutral-50 transition-colors dark:border-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-850"
-                      >
-                        취소
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => handleSaveEdit(e, link.id)}
-                        className="rounded-lg bg-purple-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-purple-700 transition-colors active:scale-[0.98]"
-                      >
-                        저장
-                      </button>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            );
-          }
+                      
+                      <div className="flex items-center gap-1">
+                        <div className="text-neutral-400 transition-transform duration-300 group-hover:translate-x-0.5 dark:text-neutral-600 mr-1.5">
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className="h-4 w-4"
+                          >
+                            <polyline points="9 18 15 12 9 6" />
+                          </svg>
+                        </div>
 
-          return (
-            <a
-              key={`${link.id}-${idx}`}
-              href={link.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="group block transition-transform duration-200 hover:-translate-y-0.5 active:translate-y-0"
-            >
-              <Card className="overflow-hidden border border-neutral-200/80 bg-white/95 shadow-sm transition-all duration-300 hover:border-neutral-300 hover:bg-white hover:shadow-md dark:border-neutral-800 dark:bg-neutral-900/95 dark:hover:border-neutral-700 dark:hover:bg-neutral-900">
-                <CardContent className="flex items-center gap-4 p-4">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-neutral-50 border border-neutral-100 overflow-hidden dark:bg-neutral-850 dark:border-neutral-800">
-                    {faviconUrl ? (
-                      <img 
-                        src={faviconUrl} 
-                        alt={`${link.title} 로고`}
-                        className="h-5 w-5 object-contain"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23888888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E";
-                        }}
-                      />
-                    ) : (
-                      "🔗"
-                    )}
-                  </div>
-                  
-                  <div className="flex-1 min-w-0">
-                    <h3 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100 group-hover:text-black dark:group-hover:text-white">
-                      {link.title}
-                    </h3>
-                    <p className="text-xs text-neutral-400 truncate dark:text-neutral-500">
-                      {link.url}
-                    </p>
-                  </div>
-                  
-                  <div className="flex items-center gap-1">
-                    <div className="text-neutral-400 transition-transform duration-300 group-hover:translate-x-0.5 dark:text-neutral-600 mr-1.5">
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        className="h-4 w-4"
-                      >
-                        <polyline points="9 18 15 12 9 6" />
-                      </svg>
-                    </div>
+                        <button
+                          type="button"
+                          onClick={(e) => handleStartEdit(e, link)}
+                          className="rounded-lg p-2 text-neutral-400 hover:bg-neutral-100 hover:text-purple-650 transition-colors focus:outline-none dark:hover:bg-neutral-800"
+                          title="링크 수정"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className="h-4 w-4"
+                          >
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                            <path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                          </svg>
+                        </button>
 
-                    <button
-                      type="button"
-                      onClick={(e) => handleStartEdit(e, link)}
-                      className="rounded-lg p-2 text-neutral-400 hover:bg-neutral-100 hover:text-purple-650 transition-colors focus:outline-none dark:hover:bg-neutral-800"
-                      title="링크 수정"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        className="h-4 w-4"
-                      >
-                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                        <path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                      </svg>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={(e) => handleOpenDeleteModal(e, link)}
-                      className="rounded-lg p-2 text-neutral-400 hover:bg-neutral-100 hover:text-red-500 transition-colors focus:outline-none dark:hover:bg-neutral-800"
-                      title="링크 삭제"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        className="h-4 w-4"
-                      >
-                        <path d="M3 6h18" />
-                        <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                        <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                      </svg>
-                    </button>
-                  </div>
-                </CardContent>
-              </Card>
-            </a>
-          );
-        })}
-      </div>
+                        <button
+                          type="button"
+                          onClick={(e) => handleOpenDeleteModal(e, link)}
+                          className="rounded-lg p-2 text-neutral-400 hover:bg-neutral-100 hover:text-red-500 transition-colors focus:outline-none dark:hover:bg-neutral-800"
+                          title="링크 삭제"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className="h-4 w-4"
+                          >
+                            <path d="M3 6h18" />
+                            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                          </svg>
+                        </button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </a>
+              );
+            })}
+          </div>
+        </>
+      )}
       
       {/* 🗑️ 삭제 확인 모달 */}
       {isDeleteModalOpen && (
