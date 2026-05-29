@@ -51,6 +51,9 @@ export const metadata: Metadata = {
     title: "MyLink | 🎀 세상에서 제일 귀엽게 나를 표현해봐! 💅✨",
     description: "나만의 링크 페이지를 갸루 감성으로 꾸며보세요. 💖🐆✨",
   },
+  verification: {
+    google: "IMVLc2aclm9odcoA8O70agyJ6nq4wzQvEHkiRgeSxvk",
+  },
 }
 
 export default function RootLayout({
