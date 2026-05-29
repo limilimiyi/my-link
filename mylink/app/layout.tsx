@@ -36,6 +36,7 @@ const fontMono = Geist_Mono({
 import { Metadata } from "next"
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://my-link-liard.vercel.app"),
   title: "MyLink | 🎀 세상에서 제일 귀엽게 나를 표현해봐! 💅✨",
   description: "30분 만에 끝내는 초강력 퍼스널 브랜딩! 나만의 링크 페이지를 갸루 감성으로 꾸며보세요. 💖🐆✨",
   openGraph: {
