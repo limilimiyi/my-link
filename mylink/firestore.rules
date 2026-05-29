@@ -1,0 +1,35 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 1. users 컬렉션 및 그 하위 문서/컬렉션 규칙
+    match /users/{userId} {
+      // 사용자 메타데이터 및 프로필 맵 필드 읽기/쓰기 조건
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == userId;
+
+      // profile 하위 컬렉션 내부의 문서들 (info, profile 등)
+      match /profile/{profileDoc} {
+        allow read: if true;
+        allow write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // links 하위 컬렉션 내부의 문서들
+      match /links/{linkId} {
+        allow read: if true;
+        allow write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+
+    // 2. usernames 글로벌 중복 체크용 컬렉션 규칙
+    match /usernames/{username} {
+      // 중복 체크 및 공유 페이지 조회를 위해 누구나 읽기 허용
+      allow read: if true;
+      // 작성 시 본인의 uid로 올바르게 기록할 때만 생성 허용
+      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
+      // 수정 및 삭제는 기존 해당 문서를 등록했던 본인만 수행 가능 (가로채기/사칭 방지)
+      allow update, delete: if request.auth != null && resource.data.uid == request.auth.uid;
+    }
+  }
+}
