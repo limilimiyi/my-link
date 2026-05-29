@@ -8,15 +8,15 @@ import { GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User 
 import { dummyLinks, LinkItem } from "@/data/links"
 import Link from "next/link"
 
-// 🐆 테마용 호피 무늬 패턴 스타일 (불규칙한 디자인)
-const leopardPattern = {
-  backgroundImage: `radial-gradient(ellipse at 10px 10px, #8b5a2b 4px, #3d2a1c 6.5px, transparent 7px),
-                    radial-gradient(circle at 28px 12px, #3d2a1c 2.5px, transparent 3px),
-                    radial-gradient(ellipse at 38px 28px, #8b5a2b 5px, #3d2a1c 8px, transparent 8.5px),
-                    radial-gradient(circle at 18px 38px, #3d2a1c 3.5px, transparent 4px),
-                    radial-gradient(ellipse at 8px 30px, #8b5a2b 3px, #3d2a1c 5.5px, transparent 6px)`,
+// 🐆 갸루 테마용 호피 무늬 패턴 스타일 (왼쪽 위 모서리 프렌치 포인트 전용)
+const leopardFrenchPoint = {
+  backgroundImage: `radial-gradient(circle at 2px 2px, #3d2a1c 1.5px, transparent 0),
+                    radial-gradient(circle at 12px 12px, #3d2a1c 1.5px, transparent 0),
+                    radial-gradient(circle at 6px 6px, #8b5a2b 3px, #3d2a1c 4.5px, transparent 0),
+                    radial-gradient(circle at 15px 5px, #8b5a2b 2px, #3d2a1c 3.5px, transparent 0)`,
   backgroundColor: '#fcd34d', // yellow-300
-  backgroundSize: '48px 48px'
+  backgroundSize: '18px 18px',
+  clipPath: 'polygon(0 0, 100% 0, 0 100%)', // 삼각형 형태로 왼쪽 위 모서리만 채움
 };
 
 // URL에서 도메인을 파싱해주는 헬퍼 함수
@@ -177,7 +177,7 @@ export default function Page() {
     }
   }
 
-  // --- 💖 스타일 렌더링 (로그인 전) ---
+  // --- 💖 갸루 스타일 렌더링 (로그인 전) ---
   if (!user && !loading) {
     return (
       <div className="flex min-h-screen flex-col bg-[#FAFAFA] font-[var(--font-hi-melody)] selection:bg-pink-500/30 overflow-x-hidden">
@@ -189,22 +189,25 @@ export default function Page() {
               <span className="text-3xl font-[var(--font-bagel)] text-pink-500 tracking-tighter italic drop-shadow-sm group-hover:text-yellow-500 transition-colors">MyLink</span>
               <span className="text-2xl animate-pulse">✨</span>
             </div>
-            <Link
-              href="/login"
-              className="group relative overflow-hidden rounded-2xl bg-pink-500 px-8 py-3 text-sm font-[var(--font-bagel)] text-white shadow-[4px_4px_0px_0px_rgba(252,211,77,1)] transition-all hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none active:scale-95 block"
+            <button
+              onClick={handleGoogleLogin}
+              className="group relative overflow-hidden rounded-2xl bg-pink-500 px-8 py-3 text-sm font-[var(--font-bagel)] text-white shadow-[4px_4px_0px_0px_rgba(252,211,77,1)] transition-all hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none active:scale-95"
             >
               로그인 💖
-            </Link>
+            </button>
           </div>
         </nav>
 
         {/* 🌟 히어로 */}
         <main className="flex-1 flex flex-col items-center justify-center pt-48 pb-20 px-4 text-center relative">
-          <div className="absolute top-0 left-0 w-full h-full pointer-events-none overflow-hidden -z-10 text-xl">
+          {/* 🐆 호피 프렌치 포인트 (왼쪽 위 모서리 장식) */}
+          <div className="absolute top-0 left-0 w-32 h-32 opacity-70 pointer-events-none -z-5" style={leopardFrenchPoint}></div>
+
+          <div className="absolute top-0 left-0 w-full h-full pointer-events-none overflow-hidden -z-10 text-xl text-neutral-400">
              <span className="absolute top-[10%] left-[5%] text-4xl animate-pulse opacity-50">✨</span>
-             <span className="absolute top-[20%] right-[10%] text-5xl animate-bounce opacity-40">💖</span>
-             <span className="absolute bottom-[15%] left-[15%] text-4xl animate-pulse opacity-60 delay-300">💅</span>
-             <span className="absolute bottom-[25%] right-[5%] text-6xl animate-bounce opacity-30 delay-700">🦋</span>
+             <span className="absolute top-[20%] right-[10%] text-5xl animate-bounce opacity-40 text-pink-300">💖</span>
+             <span className="absolute bottom-[15%] left-[15%] text-4xl animate-pulse opacity-60 delay-300 text-pink-200">💅</span>
+             <span className="absolute bottom-[25%] right-[5%] text-6xl animate-bounce opacity-30 delay-700 text-yellow-200">🦋</span>
           </div>
 
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-700 delay-100 fill-mode-both">
@@ -221,24 +224,23 @@ export default function Page() {
             세상에서 제일 <span className="text-yellow-500 underline decoration-pink-500 decoration-8 underline-offset-8">귀엽게</span> 나를 표현해봐! 💅✨
           </p>
           
-          <Link
-            href="/login"
+          <button
+            onClick={handleGoogleLogin}
             className="group relative inline-flex items-center justify-center overflow-hidden rounded-[2.5rem] bg-pink-500 px-16 py-7 font-[var(--font-bagel)] text-3xl text-white transition-all duration-300 hover:scale-110 hover:rotate-2 shadow-[12px_12px_0px_0px_rgba(252,211,77,1)]"
           >
-            <div className="absolute top-0 right-0 w-28 h-full opacity-90 pointer-events-none" style={{ ...leopardPattern, clipPath: 'polygon(100% 0, 100% 100%, 0 0)' }}></div>
+            <div className="absolute top-0 left-0 w-16 h-16 pointer-events-none z-0" style={leopardFrenchPoint}></div>
             <span className="relative z-10 flex items-center gap-4">
               지금 시작하기 💖
               <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 animate-bounce-x" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clipRule="evenodd" />
               </svg>
             </span>
-          </Link>
+          </button>
         </main>
 
         {/* 🚀 기능 */}
         <section className="bg-white py-32 border-t-8 border-pink-500 relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-80 h-80 opacity-50 pointer-events-none" style={{ ...leopardPattern, clipPath: 'polygon(0 0, 100% 0, 0 100%)' }}></div>
-          <div className="absolute bottom-0 right-0 w-80 h-80 opacity-50 pointer-events-none" style={{ ...leopardPattern, clipPath: 'polygon(100% 100%, 100% 0, 0 100%)' }}></div>
+          <div className="absolute top-0 left-0 w-32 h-32 opacity-70 pointer-events-none z-0" style={leopardFrenchPoint}></div>
           <div className="mx-auto max-w-6xl px-6 pt-10 text-center">
             <h2 className="text-7xl font-[var(--font-bagel)] text-pink-600 italic tracking-tighter mb-20 drop-shadow-sm">✨ 나만의 필수템! ✨</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-12 text-2xl">
@@ -248,7 +250,7 @@ export default function Page() {
                 { t: "개인 URL", d: "나만의 고유 ID로 친구들과 연결돼봐. 💖", i: "👱‍♀️", c: "border-pink-500", s: "rgba(252,211,77,1)" }
               ].map((item, idx) => (
                 <div key={idx} className={`group relative overflow-hidden rounded-[3rem] border-[6px] ${item.c} bg-white p-12 transition-all hover:-translate-y-4 hover:shadow-[20px_20px_0px_0px_${item.s}]`}>
-                  <div className="absolute top-0 right-0 w-32 h-32 opacity-80 pointer-events-none" style={{ ...leopardPattern, clipPath: 'polygon(100% 0, 100% 100%, 0 0)' }}></div>
+                  <div className="absolute top-0 left-0 w-12 h-12 opacity-80 pointer-events-none z-0" style={leopardFrenchPoint}></div>
                   <div className="mb-10 text-7xl">{item.i}</div>
                   <h3 className="mb-6 text-4xl font-[var(--font-bagel)] text-pink-600">{item.t}</h3>
                   <p className="font-bold text-neutral-600">{item.d}</p>
@@ -274,12 +276,13 @@ export default function Page() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-start bg-[#FAFAFA] px-4 py-8 sm:py-12 font-[var(--font-hi-melody)] selection:bg-pink-500/30">
       {/* 🧭 네비게이션 */}
-      <header className="w-full max-w-xl flex items-center justify-between py-4 px-6 mb-12 rounded-3xl border-4 border-pink-500 bg-white/90 shadow-[8px_8px_0px_0px_rgba(252,211,77,1)] animate-fadeIn font-[var(--font-bagel)]">
-        <div className="flex items-center gap-2">
+      <header className="w-full max-w-xl flex items-center justify-between py-4 px-6 mb-12 rounded-3xl border-4 border-pink-500 bg-white/90 shadow-[8px_8px_0px_0px_rgba(252,211,77,1)] animate-fadeIn font-[var(--font-bagel)] overflow-hidden relative">
+        <div className="absolute top-0 left-0 w-12 h-12 opacity-50 pointer-events-none" style={leopardFrenchPoint}></div>
+        <div className="flex items-center gap-2 relative z-10">
           <span className="text-2xl animate-pulse">🎀</span>
           <span className="font-black text-pink-500 text-xl italic tracking-tighter">MyLink</span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 relative z-10">
           {user && (
             <div className="flex items-center gap-3 text-base">
               <span className="font-black text-pink-400 mr-1">{profile?.displayName || user.displayName || "홍길동"}님💅</span>
@@ -315,7 +318,7 @@ export default function Page() {
       {/* 📝 링크 추가 폼 */}
       {user && (
         <Card className="relative w-full max-w-xl border-4 border-pink-500 bg-white shadow-[12px_12px_0px_0px_rgba(252,211,77,1)] mb-12 rounded-[2rem] overflow-hidden">
-          <div className="absolute top-0 left-0 w-32 h-32 opacity-80 pointer-events-none z-0" style={{ ...leopardPattern, clipPath: 'polygon(0 0, 100% 0, 0 100%)' }}></div>
+          <div className="absolute top-0 left-0 w-32 h-32 opacity-70 pointer-events-none z-0" style={leopardFrenchPoint}></div>
           <CardContent className="p-8 relative z-10">
             <form onSubmit={handleAddLink} className="flex flex-col gap-5">
               <div className="flex flex-col sm:flex-row gap-4">
@@ -352,7 +355,7 @@ export default function Page() {
           if (isEditing && user) {
             return (
               <Card key={link.id} className="relative border-4 border-yellow-400 bg-white shadow-lg rounded-[2rem] overflow-hidden animate-in zoom-in-95 duration-200">
-                <div className="absolute top-0 right-0 w-20 h-20 opacity-80 pointer-events-none z-0" style={{ ...leopardPattern, clipPath: 'polygon(100% 0, 100% 100%, 0 0)' }}></div>
+                <div className="absolute top-0 left-0 w-20 h-20 opacity-70 pointer-events-none z-0" style={leopardFrenchPoint}></div>
                 <CardContent className="p-6 flex flex-col gap-4 relative z-10">
                   <div className="flex flex-col sm:flex-row gap-3">
                     <input type="text" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} className="flex-1 rounded-xl border-2 border-yellow-100 px-4 py-2 text-lg font-bold outline-none focus:border-yellow-400"/>
@@ -379,8 +382,9 @@ export default function Page() {
             <a key={link.id} href={link.url} target="_blank" rel="noopener noreferrer" onClick={(e) => handleLinkClick(e, link.id)}
                className="group block transition-transform duration-200 hover:-translate-y-1 hover:rotate-1 active:translate-y-0 active:rotate-0"
             >
-              <Card className="overflow-hidden border-[3px] border-pink-100 bg-white/90 shadow-sm hover:border-pink-500 hover:shadow-[8px_8px_0px_0px_rgba(236,72,153,0.1)] rounded-[2.5rem] transition-all duration-300">
-                <CardContent className="flex items-center gap-5 p-6">
+              <Card className="overflow-hidden border-[3px] border-pink-100 bg-white/90 shadow-sm hover:border-pink-500 hover:shadow-[8px_8px_0px_0px_rgba(236,72,153,0.1)] rounded-[2.5rem] transition-all duration-300 relative">
+                <div className="absolute top-0 left-0 w-8 h-8 opacity-40 pointer-events-none group-hover:opacity-70 transition-opacity" style={leopardFrenchPoint}></div>
+                <CardContent className="flex items-center gap-5 p-6 relative z-10">
                   <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-[1.5rem] bg-pink-50 border-2 border-pink-100 overflow-hidden group-hover:border-pink-500 transition-colors">
                     {faviconUrl ? <img src={faviconUrl} alt="logo" className="h-8 w-8 object-contain"/> : <span className="text-3xl">🔗</span>}
                   </div>
@@ -413,14 +417,14 @@ export default function Page() {
             <p className="text-xl font-bold text-pink-500 mb-8 leading-relaxed">이 링크를 지우면 다시 복구할 수 없어! <br/>완전 신중하게 결정해 💅✨</p>
             <div className="flex gap-4">
               <button onClick={() => setIsDeleteModalOpen(false)} className="flex-1 py-4 text-xl font-black text-neutral-400">취소</button>
-              <button onClick={handleConfirmDelete} className="flex-1 rounded-2xl bg-red-500 py-4 text-xl font-black text-white shadow-md hover:bg-red-600 transition-all font-[var(--font-bagel)]">지우기 🔥</button>
+              <button onClick={handleConfirmDelete} className="flex-1 rounded-2xl bg-red-500 py-4 text-xl font-black text-white shadow-md hover:bg-red-600 transition-all font-[var(--font-black-han)]">지우기 🔥</button>
             </div>
           </div>
         </div>
       )}
 
       <footer className="mt-auto pt-20 pb-10 text-center">
-        <p className="text-xl text-pink-400 font-[var(--font-bagel)] italic tracking-tighter">© 2026 MyLink. Stay Kawaii! 🎀✨💅</p>
+        <p className="text-xl text-pink-400 font-[var(--font-black-han)] italic tracking-tighter">© 2026 MyLink. Stay Kawaii! 🎀✨💅</p>
       </footer>
     </div>
   )

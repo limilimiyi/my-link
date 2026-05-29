@@ -88,8 +88,6 @@ export default async function Image({ params }: { params: { username: string } }
           position: 'relative',
         }}
       >
-        <LeopardSpots />
-
         <div
           style={{
             display: 'flex',

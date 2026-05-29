@@ -85,7 +85,6 @@ export default async function Image() {
           position: 'relative',
         }}
       >
-        <LeopardSpots />
         
         <div
           style={{
