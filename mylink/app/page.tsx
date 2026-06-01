@@ -109,16 +109,6 @@ export default function Page() {
     return () => unsubscribe()
   }, [user, deletedDummyIds])
 
-  const handleGoogleLogin = async () => {
-    if (!auth) return
-    const provider = new GoogleAuthProvider()
-    try {
-      await signInWithPopup(auth, provider)
-    } catch (error) {
-      console.error("로그인 실패:", error)
-    }
-  }
-
   const handleLogout = async () => {
     if (!auth) return
     await signOut(auth)
@@ -189,12 +179,12 @@ export default function Page() {
               <span className="text-3xl font-[var(--font-bagel)] text-pink-500 tracking-tighter italic drop-shadow-sm group-hover:text-yellow-500 transition-colors">MyLink</span>
               <span className="text-2xl animate-pulse">✨</span>
             </div>
-            <button
-              onClick={handleGoogleLogin}
+            <Link
+              href="/login"
               className="group relative overflow-hidden rounded-2xl bg-pink-500 px-8 py-3 text-sm font-[var(--font-bagel)] text-white shadow-[4px_4px_0px_0px_rgba(252,211,77,1)] transition-all hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none active:scale-95"
             >
               로그인 💖
-            </button>
+            </Link>
           </div>
         </nav>
 
@@ -217,15 +207,15 @@ export default function Page() {
           </div>
           
           <h1 className="text-8xl sm:text-9xl font-[var(--font-bagel)] tracking-tighter text-neutral-900 mb-10 animate-in fade-in slide-in-from-bottom-6 duration-700 delay-200 fill-mode-both italic">
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-pink-500 via-pink-400 to-yellow-500 drop-shadow-[0_6px_0_rgba(0,0,0,0.1)] pr-4">마이링크</span>
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-pink-500 via-pink-400 to-yellow-500 drop-shadow-[0_6px_0_rgba(0,0,0,0.1)] pr-4 text-stroke">마이링크</span>
           </h1>
           
           <p className="text-4xl sm:text-5xl text-pink-500 font-bold mb-16 max-w-none w-full animate-in fade-in slide-in-from-bottom-8 duration-700 delay-300 fill-mode-both leading-tight whitespace-nowrap">
             세상에서 제일 <span className="text-yellow-500 underline decoration-pink-500 decoration-8 underline-offset-8">귀엽게</span> 나를 표현해봐! 💅✨
           </p>
           
-          <button
-            onClick={handleGoogleLogin}
+          <Link
+            href="/login"
             className="group relative inline-flex items-center justify-center overflow-hidden rounded-[2.5rem] bg-pink-500 px-16 py-7 font-[var(--font-bagel)] text-3xl text-white transition-all duration-300 hover:scale-110 hover:rotate-2 shadow-[12px_12px_0px_0px_rgba(252,211,77,1)]"
           >
             <div className="absolute top-0 left-0 w-16 h-16 pointer-events-none z-0" style={leopardFrenchPoint}></div>
@@ -235,7 +225,7 @@ export default function Page() {
                 <path fillRule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clipRule="evenodd" />
               </svg>
             </span>
-          </button>
+          </Link>
         </main>
 
         {/* 🚀 기능 */}
